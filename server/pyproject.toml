@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Unofficial local hood integration"
 requires-python = ">=3.12"
 license = "MIT"
-dependencies = ["cryptography>=43,<51", "aiohttp>=3.10,<4", "zeroconf>=0.136,<1", "ifaddr>=0.2,<1", "aiomqtt>=2.4,<3"]
+dependencies = ["cryptography>=43,<51", "aiohttp>=3.14.5,<4", "zeroconf>=0.136,<1", "ifaddr>=0.2,<1", "aiomqtt>=2.4,<3"]
 
 [project.optional-dependencies]
 pairing = ["bleak>=3,<4"]
