@@ -295,8 +295,14 @@ def test_broker_card_escapes_every_dynamic_projection():
     assert marker not in card
     assert card.count("&lt;script&gt;&quot;&amp;") == 2
     assert "<dd>Not configured</dd>" in card
-    with pytest.raises(ValueError, match="Unknown broker state"):
-        broker_card(BrokerStatus("unexpected"), None)
+
+
+def test_broker_card_unknown_state_is_neutral_and_not_echoed():
+    state = 'unexpected<script>"&'
+    card = broker_card(BrokerStatus(state), None)
+    assert 'class="badge muted">Unknown</span>' in card
+    assert "Broker connection status is not available." in card
+    assert "unexpected" not in card
 
 
 def test_broker_card_never_discloses_connection_secrets():

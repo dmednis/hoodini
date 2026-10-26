@@ -84,14 +84,10 @@ def _target(settings: MqttSettings) -> tuple[str, int, bool]:
         url = urlsplit(settings.url)
         if url.scheme not in ("mqtt", "mqtts") or not url.hostname:
             raise ValueError
+        if "@" in url.path + url.query + url.fragment:
+            raise ValueError
         tls = settings.tls or url.scheme == "mqtts"
-        port = url.port
-        if port is not None and not 1 <= port <= 65535:
-            raise ValueError
-        # An explicit empty port is not a valid broker port either.
-        if url.netloc.endswith(":"):
-            raise ValueError
-        return url.hostname, port if port is not None else (8883 if tls else 1883), tls
+        return url.hostname, url.port or (8883 if tls else 1883), tls
     except (ValueError, TypeError):
         invalid = True
     if invalid:
@@ -139,6 +135,8 @@ class HaBridge:
         reason: str | None = None,
         retry_at: float | None = None,
     ) -> None:
+        if self._stopping and state != "stopped":
+            return
         since = self._status.since
         if state != self._status.state or since is None:
             since = self._clock()

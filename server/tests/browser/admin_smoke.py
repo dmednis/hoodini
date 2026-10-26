@@ -7,6 +7,7 @@ HOODINI_UI_ARTIFACTS optionally saves synthetic-data screenshots to that directo
 
 import asyncio
 import os
+import time
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -226,7 +227,7 @@ async def main():
                     "synthetic-" + "long-broker-label-" * 12 + ".local:1883",
                     since=1792400001,
                     reason="connection refused",
-                    retry_at=4102444800,
+                    retry_at=time.time() + 30,
                     ha_state="offline",
                     ha_seen_at=1792400000,
                 )

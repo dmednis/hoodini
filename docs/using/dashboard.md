@@ -10,7 +10,7 @@ Success: the page shows a device card after pairing and first status. If the car
 
 ## Home Assistant connection
 
-The **MQTT broker** card shows Hoodini’s MQTT client connection to your broker, not the hood-facing TLS gateway on port 8883. **Connected** means Hoodini can publish discovery/state and receive commands; **Connecting** means an attempt is in progress, and **Disconnected** shows a classified failure reason and retry timing. This does not prove Home Assistant has processed discovery or that a hood is ready.
+The **MQTT broker** card shows Hoodini’s MQTT client connection to your broker, not the hood-facing TLS gateway on port 8883. **Connected** means Hoodini can publish discovery/state and receive commands; **Connecting** means an attempt is in progress, and **Disconnected** shows a classified failure reason and retry timing. This does not prove Home Assistant has processed discovery or that a hood is ready. **Stopped** means the bridge is shutting down or stopped, with automatic retry paused.
 
 **Source** distinguishes a **Configured broker** from the **Supervisor MQTT service**. Only the broker host and port are shown, never credentials. **Not configured** means standalone operation without `[mqtt]`. **Unavailable** means the startup Supervisor lookup failed; install and start Mosquitto or configure MQTT, then restart Hoodini. The Supervisor lookup runs only once at startup, with no runtime rediscovery.
 

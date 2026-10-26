@@ -185,7 +185,8 @@ def broker_card(
             badge, tone = "Stopped", "muted"
             note = "The bridge is shutting down or stopped. Automatic retry is paused."
         else:
-            raise ValueError("Unknown broker state")
+            badge, tone = "Unknown", "muted"
+            note = "Broker connection status is not available."
         if status.ha_state is None:
             ha = "Not announced yet"
             ha_note = (

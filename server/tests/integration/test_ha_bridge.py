@@ -998,11 +998,12 @@ def test_status_handles_change_failure_and_subscription_replacement(tmp_path, fa
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("phase", ["connecting", "retrying"])
+@pytest.mark.parametrize("phase", ["connecting", "retrying", "late-connected"])
 def test_status_stop_during_connect_or_retry_does_not_retry(tmp_path, phase):
     async def scenario():
         now = 1000
         reached = asyncio.Event()
+        gate = asyncio.Event()
         attempts = []
         devices = Devices([])
         bridge = HaBridge(
@@ -1020,6 +1021,10 @@ def test_status_stop_during_connect_or_retry_does_not_retry(tmp_path, phase):
             if phase == "retrying":
                 raise OSError("refused")
             reached.set()
+            if phase == "late-connected":
+                await gate.wait()
+                bridge._transition("connected")
+                return
             await asyncio.Event().wait()
 
         async def sleep(_):
@@ -1031,7 +1036,9 @@ def test_status_stop_during_connect_or_retry_does_not_retry(tmp_path, phase):
         try:
             await asyncio.wait_for(reached.wait(), 2)
         finally:
+            gate.set()
             await bridge.stop()
+        assert bridge.status.state == "stopped"
         stopped = bridge.status
         await bridge.stop()
         assert bridge.status == stopped and stopped.state == "stopped"

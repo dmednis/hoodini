@@ -1,7 +1,9 @@
 """Safe broker projections and classifier output, without broker I/O."""
 
+import asyncio
 import ssl
 from dataclasses import FrozenInstanceError
+from unittest.mock import Mock
 
 import aiomqtt
 import pytest
@@ -27,19 +29,31 @@ from hoodini.ha_bridge.client import HaBridge, _target, broker_failure_reason
         ("mqtt:///path", False, None),
         ("mqtt://broker:bad", False, None),
         ("mqtt://broker:65536", False, None),
-        ("mqtt://broker:0", False, None),
-        ("mqtt://broker:", False, None),
+        ("mqtt://broker:0", False, "broker:1883"),
+        ("mqtt://broker:", False, "broker:1883"),
+        ("mqtt://broker:0", True, "broker:8883"),
+        ("mqtt://broker:", True, "broker:8883"),
+        ("mqtt://synthetic-user:12/34@broker", False, None),
+        ("mqtt://synthetic-user:12?34@broker", False, None),
         ("mqtt://[invalid", False, None),
     ],
 )
-def test_broker_endpoint_projection(url, tls, endpoint):
+def test_broker_endpoint_projection(url, tls, endpoint, monkeypatch):
     settings = MqttSettings(url, tls=tls)
-    assert HaBridge(settings, None, None).status.endpoint == endpoint
+    bridge = HaBridge(settings, None, None)
+    assert bridge.status.endpoint == endpoint
     if endpoint is None:
         with pytest.raises(ValueError) as caught:
             _target(settings)
         assert str(caught.value) == "invalid MQTT bridge URL"
         assert caught.value.__cause__ is caught.value.__context__ is None
+        for secret in ("synthetic-user", "12", "34"):
+            assert secret not in repr(bridge.status)
+        client = Mock()
+        monkeypatch.setattr("hoodini.ha_bridge.client.aiomqtt.Client", client)
+        with pytest.raises(ValueError, match="invalid MQTT bridge URL"):
+            asyncio.run(bridge._connection())
+        client.assert_not_called()
     else:
         host, port, _ = _target(settings)
         assert str(port) in endpoint and host in endpoint
