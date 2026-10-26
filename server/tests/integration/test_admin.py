@@ -122,20 +122,22 @@ def test_addon_hostile_peer_rejects_forged_proxy_headers():
         await site.start()
         try:
             port = site._server.sockets[0].getsockname()[1]
-            async with (
-                ClientSession() as client,
-                client.get(
-                    f"http://127.0.0.1:{port}/",
-                    headers={
-                        "X-Forwarded-For": "172.30.32.2",
-                        "X-Forwarded-Host": "ha.example",
-                        "X-Forwarded-Proto": "https",
-                        "Host": "ha.example",
-                    },
-                ) as response,
-            ):
-                assert response.status == 403
-                assert "synthetic-token" not in await response.text()
+            async with ClientSession() as client:
+                for path in ("", "snapshot"):
+                    async with client.get(
+                        f"http://127.0.0.1:{port}/{path}",
+                        headers={
+                            "X-Forwarded-For": "172.30.32.2",
+                            "X-Forwarded-Host": "ha.example",
+                            "X-Forwarded-Proto": "https",
+                            "Host": "ha.example",
+                        },
+                    ) as response:
+                        assert response.status == 403
+                        text = await response.text()
+                        assert (
+                            "synthetic-token" not in text and "MQTT broker" not in text
+                        )
         finally:
             await runner.cleanup()
 
@@ -191,6 +193,7 @@ def test_admin_valid_profile_forget_and_escaped_projection():
                     assert "&lt;script&gt;&quot;" in data["devices"]
                     assert "SERIAL" not in data["devices"]
                     assert "token" not in data
+                    assert ">Not configured</span>" in data["broker"]
                 for action, data in (("profile", {"profile": ""}), ("forget", {})):
                     async with client.post(
                         url + action,
@@ -348,6 +351,174 @@ def test_admin_form_split_across_reads_is_accepted():
                 status = await post_split(port, body, chunked)
                 assert " 303 " in status, (chunked, status)
             assert [call[0] for call in devices.calls] == ["update", "update"]
+        finally:
+            await runner.cleanup()
+
+    asyncio.run(scenario())
+
+
+def test_admin_reads_current_broker_status_for_page_and_snapshot():
+    from types import SimpleNamespace
+
+    from hoodini.ha_bridge.client import BrokerStatus
+
+    async def scenario():
+        bridge = SimpleNamespace(status=BrokerStatus("connecting", "broker:1883"))
+        runner = web.AppRunner(
+            create_admin_app(
+                Devices(),
+                "synthetic-token",
+                Diagnostics(),
+                addon=False,
+                bridge=bridge,
+                broker_source="explicit",
+            )
+        )
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        url = f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}/"
+        try:
+            async with ClientSession() as client:
+                async with client.get(url) as response:
+                    assert ">Connecting</span>" in await response.text()
+                for status, expected in [
+                    (
+                        BrokerStatus("connected", "broker:1883", since=1000),
+                        ">Connected</span>",
+                    ),
+                    (
+                        BrokerStatus("retrying", reason="connection refused"),
+                        "Broker connection failed: connection refused.",
+                    ),
+                    (
+                        BrokerStatus("connected", ha_state="offline", ha_seen_at=1000),
+                        "Offline — last received",
+                    ),
+                ]:
+                    bridge.status = status
+                    async with client.get(url + "snapshot") as response:
+                        assert response.headers["Cache-Control"] == "no-store"
+                        assert (
+                            "default-src 'self'"
+                            in response.headers["Content-Security-Policy"]
+                        )
+                        data = await response.json()
+                        assert set(data) == {
+                            "devices",
+                            "diagnostics",
+                            "broker",
+                            "summary",
+                            "diagnostic_summary",
+                        }
+                        assert (
+                            isinstance(data["broker"], str)
+                            and expected in data["broker"]
+                        )
+                        assert "mqtt_source" not in data and "status" not in data
+        finally:
+            await runner.cleanup()
+
+    asyncio.run(scenario())
+
+
+def test_admin_broker_card_excludes_credentials_on_both_routes():
+    from dataclasses import replace
+
+    from hoodini.config import MqttSettings
+    from hoodini.ha_bridge.client import HaBridge, broker_failure_reason
+
+    async def scenario():
+        bridge = HaBridge(
+            MqttSettings(
+                "mqtt://SYNTHETICUSER:SYNTHETICURLSECRET@broker:1884/SYNTHETICPATH?SYNTHETICQUERY#SYNTHETICFRAGMENT",
+                "SYNTHETICUSERNAME",
+                "SYNTHETICPASSWORD",
+            ),
+            None,
+            None,
+        )
+        runner = web.AppRunner(
+            create_admin_app(
+                Devices(),
+                "SYNTHETICTOKEN",
+                Diagnostics(),
+                addon=False,
+                bridge=bridge,
+                broker_source="explicit",
+            )
+        )
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        url = f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}/"
+        try:
+            async with ClientSession() as client:
+                for state in ("connecting", "retrying"):
+                    if state == "retrying":
+                        bridge._transition(
+                            "retrying",
+                            reason=broker_failure_reason(
+                                OSError("refused SYNTHETICEXCEPTION")
+                            ),
+                        )
+                    for route in ("", "snapshot"):
+                        async with client.get(url + route) as response:
+                            text = (
+                                (await response.json())["broker"]
+                                if route
+                                else await response.text()
+                            )
+                            assert "broker:1884" in text and "SYNTHETIC" not in text
+                bridge._status = replace(bridge.status, endpoint='<script>"&')
+                for route in ("", "snapshot"):
+                    async with client.get(url + route) as response:
+                        text = (
+                            (await response.json())["broker"]
+                            if route
+                            else await response.text()
+                        )
+                        assert (
+                            "&lt;script&gt;&quot;&amp;" in text
+                            and '<script>"&' not in text
+                        )
+        finally:
+            await runner.cleanup()
+
+    asyncio.run(scenario())
+
+
+def test_admin_supervisor_lookup_failure_card():
+    async def scenario():
+        runner = web.AppRunner(
+            create_admin_app(
+                Devices(),
+                "synthetic-token",
+                Diagnostics(),
+                addon=False,
+                broker_source="unavailable",
+            )
+        )
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        url = f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}/"
+        try:
+            async with ClientSession() as client:
+                for route in ("", "snapshot"):
+                    async with client.get(url + route) as response:
+                        text = (
+                            (await response.json())["broker"]
+                            if route
+                            else await response.text()
+                        )
+                        assert (
+                            ">Unavailable</span>" in text and "restart Hoodini" in text
+                        )
+                        assert (
+                            ">Connecting</span>" not in text
+                            and "Retrying in" not in text
+                        )
         finally:
             await runner.cleanup()
 

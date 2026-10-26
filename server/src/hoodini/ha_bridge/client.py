@@ -4,10 +4,14 @@ import asyncio
 import logging
 import random
 import ssl
+import time
+from dataclasses import dataclass, replace
+from typing import Literal
 from urllib.parse import urlsplit
 
 import aiomqtt
 
+from hoodini.config import MqttSettings
 from hoodini.ha_bridge.commands import ha_command
 from hoodini.ha_bridge.discovery import (
     COMMAND_SUBSCRIPTION,
@@ -45,9 +49,6 @@ def broker_failure_reason(error: BaseException) -> str:
         rc = error.rc
         if isinstance(rc, int):
             return f"broker rejected the connection (code {rc})"
-        name = str(rc)
-        if name.replace(" ", "").isalnum():
-            return f"broker rejected the connection ({name})"
         return "broker rejected the connection"
     if isinstance(error, ssl.SSLError):
         return "TLS handshake failed"
@@ -60,11 +61,56 @@ def broker_failure_reason(error: BaseException) -> str:
     return "connection failed"
 
 
+BrokerState = Literal["connecting", "connected", "retrying", "stopped"]
+HaState = Literal["online", "offline"]
+
+
+@dataclass(frozen=True)
+class BrokerStatus:
+    """Display-safe snapshot: no credentials or raw exception text."""
+
+    state: BrokerState
+    endpoint: str | None = None
+    since: float | None = None
+    reason: str | None = None
+    retry_at: float | None = None
+    ha_state: HaState | None = None
+    ha_seen_at: float | None = None
+
+
+def _target(settings: MqttSettings) -> tuple[str, int, bool]:
+    invalid = False
+    try:
+        url = urlsplit(settings.url)
+        if url.scheme not in ("mqtt", "mqtts") or not url.hostname:
+            raise ValueError
+        if "@" in url.path + url.query + url.fragment:
+            raise ValueError
+        tls = settings.tls or url.scheme == "mqtts"
+        return url.hostname, url.port or (8883 if tls else 1883), tls
+    except (ValueError, TypeError):
+        invalid = True
+    if invalid:
+        raise ValueError("invalid MQTT bridge URL")
+
+
+def _endpoint(settings: MqttSettings) -> str | None:
+    try:
+        host, port, _ = _target(settings)
+    except ValueError:
+        return None
+    return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+
+
 class HaBridge:
-    def __init__(self, settings, devices, store, *, sleep=None, jitter=None):
+    def __init__(
+        self, settings, devices, store, *, sleep=None, jitter=None, clock=None
+    ):
         self.settings, self.devices, self.store = settings, devices, store
         self._sleep = sleep or asyncio.sleep
         self._jitter = jitter or random.random
+        self._clock = clock or time.time
+        self._status = BrokerStatus("connecting", endpoint=_endpoint(settings))
         self._task = None
         self._subscription = None
         self._client = None
@@ -78,17 +124,39 @@ class HaBridge:
         self._commands: dict[tuple[str, str], bytes] = {}
         self._senders: dict[str, asyncio.Task] = {}
 
+    @property
+    def status(self) -> BrokerStatus:
+        return self._status
+
+    def _transition(
+        self,
+        state: BrokerState,
+        *,
+        reason: str | None = None,
+        retry_at: float | None = None,
+    ) -> None:
+        if self._stopping and state != "stopped":
+            return
+        since = self._status.since
+        if state != self._status.state or since is None:
+            since = self._clock()
+        self._status = replace(
+            self._status, state=state, since=since, reason=reason, retry_at=retry_at
+        )
+
     async def start(self):
         if self._task is not None:
             return
         self._stopping = False
+        self._transition("connecting")
         self._subscription = self.devices.subscribe(self._on_event)
         self._task = asyncio.create_task(self._run())
 
     async def stop(self):
+        self._stopping = True
+        self._transition("stopped")
         if self._task is None:
             return
-        self._stopping = True
         self._task.cancel()
         try:
             await self._task
@@ -188,6 +256,14 @@ class HaBridge:
         async for message in client.messages:
             topic = str(message.topic)
             if topic == HA_STATUS_TOPIC:
+                if message.payload in (b"online", b"offline"):
+                    self._status = replace(
+                        self._status,
+                        ha_state="online"
+                        if message.payload == b"online"
+                        else "offline",
+                        ha_seen_at=self._clock(),
+                    )
                 if message.payload == b"online":
                     await self._flush()
                 continue
@@ -235,20 +311,13 @@ class HaBridge:
         await asyncio.gather(*senders, return_exceptions=True)
 
     async def _connection(self):
-        url = urlsplit(self.settings.url)
-        if url.scheme not in ("mqtt", "mqtts") or not url.hostname:
-            raise ValueError("invalid MQTT bridge URL")
-        tls = (
-            ssl.create_default_context()
-            if self.settings.tls or url.scheme == "mqtts"
-            else None
-        )
+        host, port, tls = _target(self.settings)
         async with aiomqtt.Client(
-            url.hostname,
-            url.port or (8883 if tls else 1883),
+            host,
+            port,
             username=self.settings.username,
             password=self.settings.password,
-            tls_context=tls,
+            tls_context=ssl.create_default_context() if tls else None,
             will=aiomqtt.Will("hoodini/bridge/state", b"offline", qos=1, retain=True),
         ) as client:
             self._client = client
@@ -266,9 +335,12 @@ class HaBridge:
                     await self._pending()
                     await self._publish(bridge_publication(True))
                     self._online = True
+                    self._transition("connected")
                 await self._flush()
                 await self._messages(client)
             finally:
+                if not self._stopping and self.status.state == "connected":
+                    self._transition("retrying")
                 # Commands queued for a lost broker session must not run later.
                 await self._cancel_senders()
                 if self._client is client:
@@ -298,6 +370,7 @@ class HaBridge:
         delay = 1
         while True:
             self._online = False
+            self._transition("connecting", reason=self.status.reason)
             changes = asyncio.create_task(self._changes())
             closed = asyncio.create_task(self._subscription.wait_closed())
             connection = asyncio.create_task(self._connection())
@@ -308,16 +381,17 @@ class HaBridge:
                 if closed in done:
                     self._subscription = self.devices.subscribe(self._on_event)
                     self._changed.set()
-                if connection in done and connection.exception() is not None:
-                    _LOG.warning(
-                        "HA bridge broker unavailable: %s",
-                        broker_failure_reason(connection.exception()),
-                    )
-                if changes in done and changes.exception() is not None:
-                    _LOG.warning(
-                        "HA bridge broker unavailable: %s",
-                        broker_failure_reason(changes.exception()),
-                    )
+                reason = None
+                for task in (connection, changes):
+                    if task in done and not task.cancelled():
+                        error = task.exception()
+                        if error is not None:
+                            classified = broker_failure_reason(error)
+                            _LOG.warning("HA bridge broker unavailable: %s", classified)
+                            if reason is None:
+                                reason = classified
+                if not self._stopping:
+                    self._transition("retrying", reason=reason)
             finally:
                 for task in (connection, changes, closed):
                     if not task.done():
@@ -327,5 +401,9 @@ class HaBridge:
                 )
             if self._online:
                 delay = 1
-            await self._sleep(delay + self._jitter() * min(delay, 1))
+            wait = delay + self._jitter() * min(delay, 1)
+            self._transition(
+                "retrying", reason=self.status.reason, retry_at=self._clock() + wait
+            )
+            await self._sleep(wait)
             delay = min(delay * 2, 60)

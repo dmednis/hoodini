@@ -2,17 +2,27 @@
 
 import html
 import json
+import math
+import time
 from datetime import UTC, datetime
 from importlib.resources import files
 from string import Template
 
 from hoodini.api.schemas import as_public_dict
+from hoodini.config import MqttSource
+from hoodini.ha_bridge.client import BrokerStatus
 
 _TEMPLATES = files("hoodini.api").joinpath("templates")
 _DEVICE = Template(_TEMPLATES.joinpath("device.html").read_text(encoding="utf-8"))
 _DIAGNOSTIC = Template(
     _TEMPLATES.joinpath("diagnostic.html").read_text(encoding="utf-8")
 )
+_BROKER = Template(_TEMPLATES.joinpath("broker.html").read_text(encoding="utf-8"))
+_SOURCES = {
+    "explicit": "Configured broker",
+    "supervisor": "Supervisor MQTT service",
+    "unavailable": "Supervisor MQTT service (lookup failed)",
+}
 _PROFILES = {"GENERIC": "Generic", "HIDDEN_ADVANCE": "Hidden Advance"}
 _MQTT = {
     1: "CONNECT",
@@ -110,7 +120,109 @@ def device_card(view, csrf):
     )
 
 
-def snapshot(devices, diagnostics, csrf):
+def broker_card(
+    status: BrokerStatus | None,
+    source: MqttSource | None,
+    *,
+    now: float | None = None,
+) -> str:
+    now = time.time() if now is None else now
+    if status is None:
+        endpoint, since, ha = "None", "Not available", "Not available"
+        ha_note = "HA announcements can be observed only while a broker connection is running."
+        if source == "unavailable":
+            badge, tone = "Unavailable", "error"
+            note = (
+                "Hoodini could not obtain the Supervisor MQTT service at startup. "
+                "Install and start the Mosquitto add-on or configure MQTT, then "
+                "restart Hoodini. You can also configure mqtt.url explicitly and restart."
+            )
+        else:
+            badge, tone = "Not configured", "muted"
+            note = (
+                "No broker is configured, so Home Assistant entities are not published. "
+                "Add an [mqtt] section to the configuration and restart Hoodini."
+            )
+    else:
+        endpoint = status.endpoint or "Invalid broker URL"
+        since = (
+            _time(status.since)
+            if status.since is not None
+            else "Starting"
+            if status.state == "connecting"
+            else "Not available"
+        )
+        if status.state == "connecting":
+            badge, tone = "Connecting", "waiting"
+            note = (
+                f"Previous connection failed: {status.reason}. Trying again."
+                if status.reason
+                else "Connecting to the MQTT broker."
+            )
+        elif status.state == "connected":
+            badge, tone = "Connected", "success"
+            note = (
+                "Connected to the MQTT broker. Hoodini can publish discovery and "
+                "state and receive commands."
+            )
+        elif status.state == "retrying":
+            badge, tone = "Disconnected", "error"
+            if status.retry_at is None:
+                retry = "Preparing to retry."
+            else:
+                remaining = math.ceil(status.retry_at - now)
+                retry = (
+                    f"Retrying in about {remaining} s."
+                    if remaining > 0
+                    else "Retrying shortly."
+                )
+            note = (
+                f"Broker connection failed: {status.reason}. {retry}"
+                if status.reason
+                else f"Connection closed. {retry}"
+            )
+        elif status.state == "stopped":
+            badge, tone = "Stopped", "muted"
+            note = "The bridge is shutting down or stopped. Automatic retry is paused."
+        else:
+            badge, tone = "Unknown", "muted"
+            note = "Broker connection status is not available."
+        if status.ha_state is None:
+            ha = "Not announced yet"
+            ha_note = (
+                "Home Assistant announces itself when its MQTT integration connects. "
+                "No announcement yet is normal; entities may still work."
+            )
+        else:
+            ha = f"{status.ha_state.capitalize()} — last received {_time(status.ha_seen_at)}"
+            ha_note = (
+                "This is the last announcement Hoodini received, not a live "
+                "availability check. Retained announcements may describe an earlier event."
+            )
+            if status.state != "connected":
+                ha_note += (
+                    " It cannot be refreshed while the broker connection is down."
+                )
+    return _BROKER.substitute(
+        status=_escape(badge),
+        tone=tone,
+        note=_escape(note),
+        endpoint=_escape(endpoint),
+        source=_escape(_SOURCES.get(source, "Not configured")),
+        since=_escape(since),
+        ha=_escape(ha),
+        ha_note=_escape(ha_note),
+    )
+
+
+def snapshot(
+    devices,
+    diagnostics,
+    csrf,
+    *,
+    broker: BrokerStatus | None = None,
+    broker_source: MqttSource | None = None,
+):
     views = devices.list()
     records = diagnostics.history
     recent = []
@@ -138,6 +250,7 @@ def snapshot(devices, diagnostics, csrf):
         ),
         "diagnostics": "".join(recent)
         or '<p class="empty">No diagnostic traffic yet.</p>',
+        "broker": broker_card(broker, broker_source),
         "summary": f"{len(views)} paired · {sum(view.online for view in views)} online",
         "diagnostic_summary": f"Latest {len(recent)} of {len(records)} buffered records. Newest first.",
     }

@@ -22,7 +22,7 @@ SECRET = "SYNTHETIC-BROKER-SECRET"
     [
         (
             MqttConnectError(ReasonCode(PacketTypes.CONNACK, "Not authorized")),
-            "broker rejected the connection (Not authorized)",
+            "broker rejected the connection",
         ),
         (MqttConnectError(5), "broker rejected the connection (code 5)"),
         (aiomqtt.MqttError("Operation timed out"), "connection timed out"),

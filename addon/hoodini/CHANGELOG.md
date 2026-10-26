@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Show MQTT broker connection status, settings source, safe failure reasons and approximate retry timing on the dashboard.
+- Show the last received Home Assistant online/offline announcement without treating an absent announcement as an error.
+
 ## 0.1.0
 
 - Remove disk capture mode; diagnostics remain available as bounded redacted in-memory history. Legacy `capture` options are ignored with a fixed log message.

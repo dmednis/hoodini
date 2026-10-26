@@ -35,6 +35,7 @@ def test_wheel_contains_console_script_and_admin_template(tmp_path):
         assert "hoodini/cli.py" in names
         for asset in (
             "templates/admin.html",
+            "templates/broker.html",
             "templates/device.html",
             "templates/diagnostic.html",
             "static/admin.css",

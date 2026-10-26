@@ -37,6 +37,7 @@ def test_options_json_maps_settings_without_exposing_password(tmp_path, caplog):
     )
     with caplog.at_level(logging.INFO):
         settings = load_settings(path, addon=True)
+    assert settings.mqtt_source == "explicit"
     assert settings.mqtt.url == "mqtt://broker:1883"
     assert settings.mqtt.password == "synthetic-secret"
     assert "synthetic-secret" not in repr(settings)
@@ -95,6 +96,7 @@ def test_missing_service_requires_restart(monkeypatch, caplog):
                     load_settings(None, addon=True), client
                 )
                 assert settings.mqtt.url is None
+                assert settings.mqtt_source == "unavailable"
                 assert calls == ["/addons/self/info", "/services/mqtt"]
                 await asyncio.sleep(0.02)
                 assert len(calls) == 2  # no background polling
@@ -117,6 +119,7 @@ def test_missing_service_requires_restart(monkeypatch, caplog):
                 )
                 assert settings.mqtt.url == "mqtt://broker:1883"
                 assert settings.mqtt.password == "synthetic-password"
+                assert settings.mqtt_source == "supervisor"
             assert calls == ["/addons/self/info", "/services/mqtt", "/services/mqtt"]
             assert "synthetic-supervisor-token" not in caplog.text
             assert "synthetic-password" not in caplog.text
@@ -161,6 +164,7 @@ def test_supervisor_failures_are_sanitized_and_mqtt_keeps_core(monkeypatch, capl
                             load_settings(None, addon=True), client
                         )
                         assert settings.mqtt.url is None
+                        assert settings.mqtt_source == "unavailable"
                 async with SupervisorClient(
                     base_url=f"http://127.0.0.1:{port}", timeout=0.01
                 ) as client:
@@ -168,6 +172,7 @@ def test_supervisor_failures_are_sanitized_and_mqtt_keeps_core(monkeypatch, capl
                         load_settings(None, addon=True), client
                     )
                     assert settings.mqtt.url is None
+                    assert settings.mqtt_source == "unavailable"
                 assert not statuses
                 assert (
                     caplog.text.count(
@@ -220,6 +225,7 @@ def test_options_overrides_service_values(tmp_path):
         result.mqtt.password,
         result.mqtt.tls,
     ) == ("mqtt://explicit:1884", "explicit", "synthetic-override", False)
+    assert result.mqtt_source == "explicit"
     client._get.assert_not_awaited()
 
 
@@ -242,6 +248,7 @@ def test_explicit_url_never_receives_service_credentials(tmp_path):
         result.mqtt.password,
         result.mqtt.tls,
     ) == ("mqtt://other-broker:1883", None, None, False)
+    assert result.mqtt_source == "explicit"
     client._get.assert_not_awaited()
 
 
@@ -353,10 +360,10 @@ def test_explicit_broker_survives_service_outage(tmp_path, caplog):
     settings = load_settings(options, addon=True)
     client = AsyncMock()
     client._get.side_effect = SupervisorError("Supervisor lookup unavailable.")
-    assert (
-        asyncio.run(resolve_mqtt_service(settings, client)).mqtt.url
-        == "mqtt://explicit:1883"
-    )
+    result = asyncio.run(resolve_mqtt_service(settings, client))
+    assert result.mqtt.url == "mqtt://explicit:1883"
+    assert result.mqtt_source == "explicit"
+    client._get.assert_not_awaited()
     assert "restart the add-on" not in caplog.text
 
 
@@ -406,3 +413,63 @@ def test_supervisor_exception_graph_drops_request_headers(monkeypatch, failure):
             await runner.cleanup()
 
     asyncio.run(scenario())
+
+
+def test_null_url_uses_supervisor_service(tmp_path):
+    path = tmp_path / "options.json"
+    path.write_text(
+        json.dumps(
+            {
+                "mqtt": {
+                    "url": None,
+                    "username": "synthetic-override",
+                    "password": None,
+                    "tls": False,
+                }
+            }
+        )
+    )
+    client = AsyncMock()
+    client._get.return_value = {
+        "host": "service",
+        "port": 1883,
+        "username": "service",
+        "password": "synthetic-service",
+        "ssl": True,
+    }
+    result = asyncio.run(resolve_mqtt_service(load_settings(path, addon=True), client))
+    assert result.mqtt_source == "supervisor"
+    assert (
+        result.mqtt.url,
+        result.mqtt.username,
+        result.mqtt.password,
+        result.mqtt.tls,
+    ) == (
+        "mqtt://service:1883",
+        "synthetic-override",
+        None,
+        False,
+    )
+    client._get.assert_awaited_once_with("/services/mqtt")
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"host": "synthetic-secret/host"},
+        {"port": 65536},
+        {"port": True},
+        {"ssl": "synthetic-secret"},
+        {"username": {"synthetic-secret": True}},
+        {"password": ["synthetic-secret"]},
+    ],
+)
+def test_invalid_mqtt_service_sets_unavailable_source(override, caplog):
+    client = AsyncMock()
+    client._get.return_value = {"host": "broker", "port": 1883, **override}
+    result = asyncio.run(resolve_mqtt_service(load_settings(None, addon=True), client))
+    assert result.mqtt_source == "unavailable" and result.mqtt.url is None
+    assert caplog.messages == [
+        "MQTT unavailable; restart the add-on after installing/configuring MQTT."
+    ]
+    assert "synthetic-secret" not in caplog.text

@@ -8,9 +8,10 @@ from pathlib import Path
 import pytest
 from aiohttp import ClientSession
 from hoodini import app
-from hoodini.config import load_settings
+from hoodini.config import MqttSettings, load_settings
 from hoodini.devices.models import DeviceView
 from hoodini.gateway.server import Gateway
+from hoodini.ha_bridge.client import BrokerStatus
 from hoodini.protocol.profiles import resolve_profile
 from hoodini.storage import StoredDevice
 
@@ -158,9 +159,23 @@ def test_runtime_http_command_roundtrip_over_real_loopback_tls_gateway(
     asyncio.run(scenario())
 
 
-def test_bonjour_failure_rolls_back_http_gateway_and_service(tmp_path, monkeypatch):
+@pytest.mark.parametrize("configured", [False, True])
+def test_bonjour_failure_rolls_back_http_gateway_and_service(
+    tmp_path, monkeypatch, configured
+):
     loopback(monkeypatch)
     owners = []
+    bridges = []
+
+    class ProbeBridge(app.HaBridge):
+        def __init__(self, *args):
+            super().__init__(*args)
+            bridges.append(self)
+
+        async def start(self):
+            pytest.fail("Bridge must not start before Bonjour succeeds")
+
+    monkeypatch.setattr(app, "HaBridge", ProbeBridge)
 
     class RefusingBonjour:
         def __init__(self):
@@ -177,12 +192,22 @@ def test_bonjour_failure_rolls_back_http_gateway_and_service(tmp_path, monkeypat
     monkeypatch.setattr(app, "Bonjour", RefusingBonjour)
 
     async def scenario():
-        runtime = app.Runtime(replace(load_settings(None), data_dir=tmp_path))
+        runtime = app.Runtime(
+            replace(
+                load_settings(None),
+                data_dir=tmp_path,
+                mqtt=MqttSettings("mqtt://broker" if configured else None),
+            )
+        )
         with pytest.raises(app.RuntimeError) as error:
             await runtime.start()
         assert error.value.__context__ is None
         assert "synthetic-private-bonjour" not in repr(error.value)
         assert owners[0].stopped
+        assert len(bridges) == int(configured)
+        if configured:
+            assert bridges[0].status.state == "stopped"
+            assert bridges[0]._task is bridges[0]._subscription is None
         assert (
             runtime.gateway is None and runtime.devices is None and runtime.api is None
         )
@@ -231,6 +256,14 @@ def test_startup_bind_failure_rolls_back_and_reports_fixed_port(tmp_path, monkey
 
 def test_admin_binding_preflight_and_failed_admin_site_rollback(tmp_path, monkeypatch):
     loopback(monkeypatch)
+    bridges = []
+
+    class ProbeBridge(app.HaBridge):
+        def __init__(self, *args):
+            super().__init__(*args)
+            bridges.append(self)
+
+    monkeypatch.setattr(app, "HaBridge", ProbeBridge)
     original_site = app.web.TCPSite
 
     def failing_admin(runner, host, port):
@@ -241,7 +274,13 @@ def test_admin_binding_preflight_and_failed_admin_site_rollback(tmp_path, monkey
     monkeypatch.setattr(app.web, "TCPSite", failing_admin)
 
     async def scenario():
-        runtime = app.Runtime(replace(load_settings(None), data_dir=tmp_path))
+        runtime = app.Runtime(
+            replace(
+                load_settings(None),
+                data_dir=tmp_path,
+                mqtt=MqttSettings("mqtt://127.0.0.1:1"),
+            )
+        )
         with pytest.raises(app.RuntimeError) as error:
             await runtime.start()
         assert error.value.__context__ is None
@@ -249,6 +288,8 @@ def test_admin_binding_preflight_and_failed_admin_site_rollback(tmp_path, monkey
         assert (
             runtime.gateway is runtime.devices is runtime.api is runtime.admin is None
         )
+        assert bridges[0].status.state == "stopped"
+        assert bridges[0]._task is bridges[0]._subscription is None
         await runtime.stop()
         monkeypatch.setattr(app.web, "TCPSite", original_site)
         await runtime.start()
@@ -363,6 +404,7 @@ def test_runtime_bridge_stops_before_bonjour(tmp_path, monkeypatch):
     class FakeBridge:
         def __init__(self, settings, devices, store):
             calls.append("created")
+            self.status = BrokerStatus("connecting", "127.0.0.1:18883")
 
         async def start(self):
             calls.append("started")
@@ -391,9 +433,228 @@ def test_runtime_bridge_stops_before_bonjour(tmp_path, monkeypatch):
         runtime = app.Runtime(settings)
         await runtime.start()
         assert runtime.bridge is not None
-        assert calls == ["bonjour started", "created", "started"]
+        assert calls == ["created", "bonjour started", "started"]
+        await runtime.start()
+        assert calls == ["created", "bonjour started", "started"]
+        site = next(iter(runtime.admin.sites))
+        async with (
+            ClientSession() as client,
+            client.get(
+                f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}/snapshot"
+            ) as response,
+        ):
+            card = (await response.json())["broker"]
+            assert "127.0.0.1:18883" in card and "Configured broker" in card
         await runtime.stop()
         assert calls[-2:] == ["bridge stopped", "bonjour stopped"]
         assert runtime.bridge is None
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "cancel", [False, True], ids=["observe-before-start", "cancel-unstarted"]
+)
+def test_runtime_admin_observes_bridge_before_bridge_start(
+    tmp_path, monkeypatch, cancel
+):
+    loopback(monkeypatch)
+
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+        bridges, sites, calls = [], [], []
+        original_site = app.web.TCPSite
+
+        def capture_site(runner, host, port):
+            site = original_site(runner, host, port)
+            if port == 8099:
+                sites.append(site)
+            return site
+
+        class ProbeBridge(app.HaBridge):
+            def __init__(self, *args):
+                super().__init__(*args)
+                bridges.append(self)
+
+            async def start(self):
+                calls.append("bridge started")
+                await super().start()
+
+            async def stop(self):
+                calls.append("bridge stopped")
+                await super().stop()
+
+        class GatedBonjour:
+            async def start(self, *_):
+                entered.set()
+                await release.wait()
+
+            async def stop(self):
+                calls.append("bonjour stopped")
+
+        monkeypatch.setattr(app, "HaBridge", ProbeBridge)
+        monkeypatch.setattr(app, "Bonjour", GatedBonjour)
+        monkeypatch.setattr(app.web, "TCPSite", capture_site)
+        runtime = app.Runtime(
+            replace(
+                load_settings(None),
+                data_dir=tmp_path,
+                mqtt=MqttSettings("mqtt://127.0.0.1:1"),
+            )
+        )
+        task = asyncio.create_task(runtime.start())
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            assert bridges[0]._task is bridges[0]._subscription is None
+            site = sites[0]
+            url = (
+                f"http://127.0.0.1:{site._server.sockets[0].getsockname()[1]}/snapshot"
+            )
+            async with ClientSession() as client, client.get(url) as response:
+                card = (await response.json())["broker"]
+                assert ">Connecting</span>" in card and "<dd>Starting</dd>" in card
+                assert "127.0.0.1:1" in card and "Configured broker" in card
+            if cancel:
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError) as caught:
+                    await asyncio.wait_for(task, 2)
+                assert caught.value.__context__ is caught.value.__cause__ is None
+                assert calls == ["bridge stopped", "bonjour stopped"]
+                assert bridges[0].status.state == "stopped"
+                assert bridges[0]._task is bridges[0]._subscription is None
+                assert not site._runner.sites
+                assert runtime.bridge is runtime.gateway is runtime.admin is None
+            else:
+                release.set()
+                await asyncio.wait_for(task, 2)
+                assert calls == ["bridge started"]
+                assert runtime.bridge is bridges[0]
+        finally:
+            release.set()
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            await runtime.stop()
+
+    asyncio.run(scenario())
+
+
+def test_runtime_bridge_start_failure_rolls_back_all_owners(tmp_path, monkeypatch):
+    loopback(monkeypatch)
+    calls, bridges = [], []
+
+    class FailingBridge(app.HaBridge):
+        def __init__(self, *args):
+            super().__init__(*args)
+            bridges.append(self)
+
+        async def start(self):
+            await super().start()
+            raise OSError("SYNTHETICSECRET")
+
+        async def stop(self):
+            calls.append("bridge stopped")
+            await super().stop()
+
+    class ProbeBonjour:
+        async def start(self, *_):
+            calls.append("bonjour started")
+
+        async def stop(self):
+            assert bridges[0]._task is None
+            calls.append("bonjour stopped")
+
+    monkeypatch.setattr(app, "HaBridge", FailingBridge)
+    monkeypatch.setattr(app, "Bonjour", ProbeBonjour)
+
+    async def scenario():
+        runtime = app.Runtime(
+            replace(
+                load_settings(None),
+                data_dir=tmp_path,
+                mqtt=MqttSettings("mqtt://broker"),
+            )
+        )
+        with pytest.raises(app.RuntimeError) as caught:
+            await runtime.start()
+        assert "SYNTHETICSECRET" not in str(caught.value)
+        assert caught.value.__context__ is caught.value.__cause__ is None
+        assert calls == ["bonjour started", "bridge stopped", "bonjour stopped"]
+        assert bridges[0]._task is bridges[0]._subscription is None
+        assert (
+            runtime.bridge
+            is runtime.gateway
+            is runtime.devices
+            is runtime.api
+            is runtime.admin
+            is runtime.bonjour
+            is None
+        )
+        await runtime.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("rollback", [False, True])
+def test_runtime_cleanup_failure_retains_bridge_for_stop_retry(
+    tmp_path, monkeypatch, rollback
+):
+    loopback(monkeypatch)
+    calls, bridges = [], []
+
+    class RetryBridge(app.HaBridge):
+        def __init__(self, *args):
+            super().__init__(*args)
+            bridges.append(self)
+            self.stops = 0
+
+        async def stop(self):
+            self.stops += 1
+            calls.append("bridge stop")
+            if self.stops == 1:
+                raise OSError("SYNTHETICSECRET")
+            await super().stop()
+
+    class ProbeBonjour:
+        async def start(self, *_):
+            if rollback:
+                raise OSError("SYNTHETICSECRET")
+
+        async def stop(self):
+            calls.append("bonjour stop")
+
+    monkeypatch.setattr(app, "HaBridge", RetryBridge)
+    monkeypatch.setattr(app, "Bonjour", ProbeBonjour)
+
+    async def scenario():
+        runtime = app.Runtime(
+            replace(
+                load_settings(None),
+                data_dir=tmp_path,
+                mqtt=MqttSettings("mqtt://127.0.0.1:1"),
+            )
+        )
+        try:
+            if rollback:
+                with pytest.raises(
+                    app.RuntimeError, match="clean up runtime startup safely"
+                ):
+                    await runtime.start()
+            else:
+                await runtime.start()
+                with pytest.raises(app.RuntimeError, match="stop local runtime safely"):
+                    await runtime.stop()
+            assert calls == ["bridge stop"]
+            assert runtime.bridge is bridges[0]
+            assert (
+                runtime.gateway is not None
+                and runtime.admin.sites
+                and runtime.api.sites
+            )
+            await runtime.stop()
+            assert calls == ["bridge stop", "bridge stop", "bonjour stop"]
+            assert runtime.bridge is runtime.admin is runtime.gateway is None
+        finally:
+            await runtime.stop()
 
     asyncio.run(scenario())

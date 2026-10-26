@@ -10,7 +10,9 @@ from urllib.parse import urlsplit
 
 from aiohttp import web
 from hoodini.api.admin_ui import snapshot as render_snapshot
+from hoodini.config import MqttSource
 from hoodini.devices.service import ForgetError
+from hoodini.ha_bridge.client import HaBridge
 from hoodini.protocol.profiles import ValidationError
 
 _FORM_LIMIT = 8192
@@ -100,7 +102,14 @@ def validate_ingress_context(ingress_context: IngressContext) -> None:
 
 
 def create_admin_app(
-    devices, token, diagnostics, *, addon, ingress_context=None
+    devices,
+    token,
+    diagnostics,
+    *,
+    addon,
+    ingress_context=None,
+    bridge: HaBridge | None = None,
+    broker_source: MqttSource | None = None,
 ) -> web.Application:
     if addon:
         validate_ingress_context(ingress_context)
@@ -177,12 +186,18 @@ def create_admin_app(
         task.add_done_callback(finished)
         return asyncio.shield(task)
 
+    def rendered():
+        status = bridge.status if bridge is not None else None
+        return render_snapshot(
+            devices, diagnostics, csrf, broker=status, broker_source=broker_source
+        )
+
     async def index(request):
-        page = template.substitute(render_snapshot(devices, diagnostics, csrf))
+        page = template.substitute(rendered())
         return web.Response(text=page, content_type="text/html")
 
     async def snapshot(request):
-        return web.json_response(render_snapshot(devices, diagnostics, csrf))
+        return web.json_response(rendered())
 
     async def reveal_token(request):
         # Same peer/host boundary as the page; no CORS or token in initial HTML.
