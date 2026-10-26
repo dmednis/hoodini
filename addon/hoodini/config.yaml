@@ -1,0 +1,36 @@
+name: Hoodini
+slug: hoodini
+version: 0.1.0
+description: Local control for Elica Connect cooker hoods
+arch:
+  - amd64
+  - aarch64
+image: ghcr.io/dmednis/hoodini
+init: false
+host_network: true
+ingress: true
+ingress_port: 0
+panel_icon: mdi:chef-hat
+services:
+  - mqtt:want
+environment:
+  HOODINI_MODE: addon
+options:
+  log_level: INFO
+  mqtt: {}
+  api:
+    interfaces: []
+    addresses: []
+schema:
+  mqtt:
+    url: str?
+    username: str?
+    password: password?
+    tls: bool?
+  log_level: list(DEBUG|INFO|WARNING|ERROR|CRITICAL)
+  api:
+    port: port?
+    interfaces:
+      - str
+    addresses:
+      - str

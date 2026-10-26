@@ -1,0 +1,26 @@
+<article class="device-card" data-cuid="$cuid">
+  <header><div class="device-title"><h3>Hood $cuid</h3><span class="badge $tone">$status</span></div><p class="subtle">$model · $profile</p></header>
+  <p class="connection-note">$note</p>
+  <dl class="readings">
+    <div><dt>Fan</dt><dd>$fan</dd></div><div><dt>Light</dt><dd>$light</dd></div>
+    <div><dt>Wi-Fi signal</dt><dd>$rssi</dd></div><div><dt>Capabilities</dt><dd>$capabilities reported</dd></div>
+  </dl>
+  <p class="subtle last-seen">Last report: $last_seen</p>
+  <details><summary>Device settings</summary>
+    <form method="post" action="./profile">
+      <input type="hidden" name="csrf" value="$csrf"><input type="hidden" name="cuid" value="$cuid">
+      <label>Profile override<select name="profile">$options</select></label>
+      <small>Automatic uses the hood's model information. Override only if the detected profile is incorrect.</small>
+      <button type="submit" class="secondary">Save profile</button>
+    </form>
+    <details class="danger-zone"><summary>Forget this hood</summary>
+      <p>Removes saved metadata, local trust and Home Assistant discovery. This does not reset the hood's Wi-Fi. You will need to pair again.</p>
+      <form method="post" action="./forget" data-confirm="Forget this hood? You will need to pair it again.">
+        <input type="hidden" name="csrf" value="$csrf"><input type="hidden" name="cuid" value="$cuid">
+        <label><input type="checkbox" required> I understand that pairing will be required again.</label>
+        <button type="submit" class="outline danger">Forget hood</button>
+      </form>
+    </details>
+  </details>
+  <details><summary>Raw device details</summary><pre><code>$raw</code></pre></details>
+</article>

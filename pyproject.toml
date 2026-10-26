@@ -1,0 +1,21 @@
+[project]
+name = "hoodini-workspace"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["hoodini"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "pyyaml>=6,<7", "mkdocs-material>=9.6,<10"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+hoodini = { workspace = true }
+
+[tool.uv.workspace]
+members = ["server"]
+
+[tool.pytest.ini_options]
+testpaths = ["server/tests"]
+markers = ["mqtt: isolated MQTT broker integration tests", "image: local Docker image smoke tests"]

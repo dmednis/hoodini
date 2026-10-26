@@ -1,0 +1,24 @@
+# Standalone example. Gateway TLS listener uses fixed port 8883.
+# Mosquitto reserves 8883 by default even without TLS. Manually blank/remap
+# its port if needed; existing clients must be updated. Never auto-remap.
+# Native default is ./data; image sets HOODINI_DATA_DIR=/data when no config is supplied.
+# An explicit data_dir here overrides that environment default.
+data_dir = "./data"
+log_level = "INFO"
+
+# No broker is required to run the local core. Add [mqtt] only when configured.
+# [mqtt]
+# url = "mqtt://broker.example"
+# Broker username/password, if needed, belong only in a private config file.
+# tls = false
+
+[gateway]
+bind = "0.0.0.0"
+
+[api]
+port = 8765
+# interfaces = ["en0"]
+# addresses = ["192.0.2.1"]
+
+[admin]
+bind = "127.0.0.1:8099"

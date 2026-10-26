@@ -1,0 +1,9 @@
+# Security and privacy
+
+The hood does **not validate** the server TLS certificate. Hoodini generates a persisted self-signed RSA-2048/SHA-256 certificate; TOFU binds the first credential for a device ID, then rejects a mismatch. TOFU cannot prevent a first-enrolment race or active MITM; it is not mutual TLS or cloud isolation. Keep the host and broker on a trusted network; cloud isolation has not been demonstrated.
+
+The LAN API (default 8765, all interfaces) offers reads and token-authorized writes but **never serves the token or admin UI**. Public metadata is a limited positive projection, not arbitrary uploaded device information. The token lives in the data directory at mode 0600; only local `hoodini token` or the admin page displays it. Standalone admin binds to loopback `127.0.0.1:8099` by default; for remote access use an SSH tunnel (for example `ssh -L 8099:127.0.0.1:8099 user@example.com`) rather than exposing admin on the LAN.
+
+Add-on admin is intended for HA ingress only, bound to the HA bridge address and allowing only socket peer `172.30.32.2`. Forwarded headers never authenticate the peer. After peer validation, browser mutations require CSRF and Origin equal to the single proxy-reported `X-Forwarded-Proto` plus `X-Forwarded-Host`; missing, duplicated or comma-chained headers are rejected. **HA OS ingress peer/binding and proxy behavior remain to be verified on actual hardware.**
+
+Never post raw debug logs from `pair --verbose`, raw `cap_<id>` sensor values, CONNECT packets, BLE NETWORK_PAR, setup keys, tokens, Wi-Fi secrets, or private APKs. Diagnostics retain bounded, redacted history in memory; review and redact exports manually before sharing. The bundled setup-key slot is shared by every hood and requires physical setup mode; a locally saved extracted key overrides it. Forgetting a device removes its trust binding; only re-enrol on a trusted LAN.

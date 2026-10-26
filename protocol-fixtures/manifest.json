@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "path": "observed-mqtt.json",
+      "sha256": "4a1dfd328c1d711d6060c35e641d64962f38964edb42ffd5e696d0aaf2cf3f63",
+      "evidence": "observed_transcription",
+      "provenance": "Two light-command payloads transcribed in dated 2026-08-24 reverse-engineering notes, not independently inspected original captures."
+    },
+    {
+      "path": "supplemental-mqtt.json",
+      "sha256": "bffa0705e94caaea97268bca3458b3ae8997e54417ad8e3bfb0040ec430acfb1",
+      "evidence": "recipe_instantiation and synthetic",
+      "provenance": "Six command-recipe instantiations and nine synthetic cases built from documented layouts and chosen values; not observed payloads."
+    }
+  ],
+  "limitations": "Payload-only vectors omit MQTT envelopes and real identifiers. Synthetic cases do not supply missing observed status, ack, connect, or time payloads or establish real-device behavior."
+}

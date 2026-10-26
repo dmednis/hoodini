@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hoodini"
+version = "0.1.0"
+description = "Unofficial local hood integration"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = ["cryptography>=43,<51", "aiohttp>=3.10,<4", "zeroconf>=0.136,<1", "ifaddr>=0.2,<1", "aiomqtt>=2.4,<3"]
+
+[project.optional-dependencies]
+pairing = ["bleak>=3,<4"]
+extract = ["androguard>=4,<5"]
+
+[project.scripts]
+hoodini = "hoodini.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hoodini"]

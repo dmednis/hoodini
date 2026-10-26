@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation and troubleshooting
+    url: https://dmednis.github.io/hoodini/reference/troubleshooting/
+    about: Check the guides before filing a bug.
+  - name: Discussions
+    url: https://github.com/dmednis/hoodini/discussions
+    about: Ask usage questions without posting sensitive data.

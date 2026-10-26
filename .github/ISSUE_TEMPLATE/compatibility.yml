@@ -1,0 +1,41 @@
+name: Compatibility report
+description: Add a model to the supported-hoods table with reviewed, redacted observations
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Do not post `pair --verbose` debug logs, raw `cap_<id>` sensors, MQTT CONNECT packets, Wi-Fi data, API tokens,
+        setup keys, credentials, private APKs, serials, MACs or unredacted logs.
+        Manually review and redact any diagnostic history before attaching it.
+        Synthetic fixtures and untested platforms are not hardware verification.
+        Check https://dmednis.github.io/hoodini/reference/supported-hoods/ before reporting.
+  - type: input
+    id: model
+    attributes:
+      label: Model family (no device identifiers)
+      placeholder: Generic or HIDDEN_ADVANCE
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Deployment type
+      options:
+        - Native
+        - Standalone Compose
+        - Home Assistant add-on
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: observations
+    attributes:
+      label: Observed behaviour (manually reviewed/redacted)
+      description: Describe expected and actual behaviour without identifiers or secrets.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Optional reviewed and redacted evidence
+      description: Do not attach raw debug logs, `cap_<id>` sensor values or CONNECT/NETWORK_PAR packets. Explain how you checked redaction.

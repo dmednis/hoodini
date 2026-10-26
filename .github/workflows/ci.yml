@@ -1,0 +1,57 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # No HOODINI_TEST_MQTT_URL: the test fixture starts and restarts its own
+    # digest-pinned Docker Mosquitto; an external broker would skip restart tests.
+    env:
+      HOODINI_TEST_IMAGE: hoodini:local
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - run: uv lock --check && uv sync --locked
+      - run: docker build -t hoodini:local .
+      - name: Full suite (any skipped test fails CI)
+        run: |
+          uv run python - <<'PY'
+          import pytest
+          class NoSkips:
+              def __init__(self):
+                  self.skips = 0
+              def pytest_runtest_logreport(self, report):
+                  if report.skipped:
+                      self.skips += 1
+              def pytest_collectreport(self, report):
+                  if report.skipped:
+                      self.skips += 1
+          plugin = NoSkips()
+          result = pytest.main(['server/tests', '-q'], plugins=[plugin])
+          if plugin.skips:
+              raise SystemExit(f'CI rejects {plugin.skips} skipped tests')
+          raise SystemExit(int(result))
+          PY
+      - run: uv run ruff check server && uv run ruff format --check server
+      - run: uv build --package hoodini
+      - run: uv run mkdocs build --strict
+  multiarch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Local-only multi-architecture build (no push)
+        run: |
+          trap 'rm -f /tmp/hoodini-review.oci' EXIT
+          docker buildx build --platform linux/amd64,linux/arm64 --output=type=oci,dest=/tmp/hoodini-review.oci .

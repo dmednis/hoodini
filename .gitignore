@@ -1,0 +1,28 @@
+# Local environments, caches, and build output
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+site/
+
+# Private/local material, never publish or include in an image context
+scratch
+scratch/
+data/
+*.apk
+*.aab
+*.log
+*.pcap
+*.pcapng
+*.key
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
+credentials*
+secrets*

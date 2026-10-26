@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "layer": "mqtt_application_payload",
+  "scope": "Explicitly constructed vectors, NOT observed byte-for-byte captures. Each is independent; matching sequences do not imply a recorded conversation.",
+  "construction": "Literal expectations derived from documented layouts and command recipes, without using a product encoder. Synthetic timestamps and chosen sequence bytes are not evidence of actual capture values.",
+  "fixtures": [
+    {
+      "id": "recipe_light_dim30_seq0",
+      "kind": "command",
+      "evidence": "recipe_instantiation",
+      "source_id": "re_report_recipes",
+      "direction": "server_to_hood",
+      "topic_suffix": "op/mode",
+      "payload_hex": "002a8d000000753000601e004701000022",
+      "expected": {"seq": 0, "caps": [[96, 30]], "remote_cmd": [71, 1], "checksum": 34},
+      "construction_note": "Brightness 30 is a chosen instance of the documented dim recipe; sequence and checksum are constructed."
+    },
+    {
+      "id": "recipe_fan_speed1_seq0",
+      "kind": "command",
+      "evidence": "recipe_instantiation",
+      "source_id": "re_report_recipes",
+      "direction": "server_to_hood",
+      "topic_suffix": "op/mode",
+      "payload_hex": "002a8d0000007530006e01004001004701000054",
+      "expected": {"seq": 0, "caps": [[110, 1], [64, 1]], "remote_cmd": [71, 1], "checksum": 84},
+      "construction_note": "Preserves recipe entry order: speed, normal mode, remote marker. Sequence and checksum are constructed."
+    },
+    {
+      "id": "recipe_fan_speed2_seq0",
+      "kind": "command",
+      "evidence": "recipe_instantiation",
+      "source_id": "re_report_recipes",
+      "direction": "server_to_hood",
+      "topic_suffix": "op/mode",
+      "payload_hex": "002a8d0000007530006e02004001004701000055",
+      "expected": {"seq": 0, "caps": [[110, 2], [64, 1]], "remote_cmd": [71, 1], "checksum": 85},
+      "construction_note": "Sequence and checksum are constructed, not recovered from an observed speed-2 packet."
+    },
+    {
+      "id": "recipe_fan_speed3_seq0",
+      "kind": "command",
+      "evidence": "recipe_instantiation",
+      "source_id": "re_report_recipes",
+      "direction": "server_to_hood",
+      "topic_suffix": "op/mode",
+      "payload_hex": "002a8d0000007530006e03004001004701000056",
+      "expected": {"seq": 0, "caps": [[110, 3], [64, 1]], "remote_cmd": [71, 1], "checksum": 86},
+      "construction_note": "Sequence and checksum are constructed, not recovered from an observed speed-3 packet."
+    },
+    {
+      "id": "recipe_fan_off_seq0",
+      "kind": "command",
+      "evidence": "recipe_instantiation",
+      "source_id": "re_report_recipes",
+      "direction": "server_to_hood",
+      "topic_suffix": "op/mode",
+      "payload_hex": "002a8d0000007530006e00004001004701000053",
+      "expected": {"seq": 0, "caps": [[110, 0], [64, 1]], "remote_cmd": [71, 1], "checksum": 83},
+      "construction_note": "Fan off explicitly restores normal mode; sequence and checksum are constructed."
+    },
+    {
+      "id": "recipe_boost_seq0",
+      "kind": "command",
+      "evidence": "recipe_instantiation",
+      "source_id": "re_report_recipes",
+      "direction": "server_to_hood",
+      "topic_suffix": "op/mode",
+      "payload_hex": "002a8d00000075300040050047010000e9",
+      "expected": {"seq": 0, "caps": [[64, 5]], "remote_cmd": [71, 1], "checksum": 233},
+      "construction_note": "Uses model-specific boost value 5 from the reverse-engineering report, not an earlier hypothesis of 4. Sequence and checksum are constructed."
+    },
+    {
+      "id": "synthetic_status_idle_18caps",
+      "kind": "status",
+      "evidence": "synthetic",
+      "source_id": "re_report_idle_values",
+      "direction": "hood_to_server",
+      "topic_suffix": "status",
+      "payload_hex": "01020304b47530000500000600000b03002d00003000003500004001004400004500004700004801006000006100006300006e000080640081000083010000e3",
+      "expected": {
+        "epoch": 16909060,
+        "header_byte_4": 180,
+        "rssi_signed": -76,
+        "caps": [[5, 0], [6, 0], [11, 3], [45, 0], [48, 0], [53, 0], [64, 1], [68, 0], [69, 0], [71, 0], [72, 1], [96, 0], [97, 0], [99, 0], [110, 0], [128, 100], [129, 0], [131, 1]],
+        "checksum": 227
+      },
+      "construction_note": "Reconstructs the documented idle capability values, not the original packet. Epoch, header byte, entry ordering, and checksum are supplied explicitly. The RSSI interpretation/units remain inferred; report size does not classify full versus partial."
+    },
+    {
+      "id": "synthetic_status_light30",
+      "kind": "status",
+      "evidence": "synthetic",
+      "source_id": "documented_protocol",
+      "direction": "hood_to_server",
+      "topic_suffix": "status",
+      "payload_hex": "01020305b4753000601e0000e2",
+      "expected": {"epoch": 16909061, "header_byte_4": 180, "rssi_signed": -76, "caps": [[96, 30]], "checksum": 226},
+      "construction_note": "Chosen one-capability report for merge tests; not an observed light-change packet. RSSI interpretation remains inferred."
+    },
+    {
+      "id": "synthetic_status_fan3_normal",
+      "kind": "status",
+      "evidence": "synthetic",
+      "source_id": "documented_protocol",
+      "direction": "hood_to_server",
+      "topic_suffix": "status",
+      "payload_hex": "01020306b47530006e03004001000017",
+      "expected": {"epoch": 16909062, "header_byte_4": 180, "rssi_signed": -76, "caps": [[110, 3], [64, 1]], "checksum": 23},
+      "construction_note": "Chosen two-capability report for endian/order/merge tests; not an observed fan-change packet. RSSI interpretation remains inferred."
+    },
+    {
+      "id": "synthetic_ack_accepted_seq24",
+      "kind": "ack",
+      "evidence": "synthetic",
+      "source_id": "documented_protocol",
+      "direction": "hood_to_server",
+      "topic_suffix": "ack",
+      "payload_hex": "002a8d18010000d0",
+      "expected": {"seq": 24, "result": 1, "accepted": true, "checksum": 208},
+      "construction_note": "Chosen sequence and computed checksum instantiate the documented ack shape. This is NOT a captured response to observed_light_on_seq24."
+    },
+    {
+      "id": "synthetic_ack_nonaccepted_seq24",
+      "kind": "ack",
+      "evidence": "synthetic",
+      "source_id": "documented_protocol",
+      "direction": "hood_to_server",
+      "topic_suffix": "ack",
+      "payload_hex": "002a8d18000000cf",
+      "expected": {"seq": 24, "result": 0, "accepted": false, "checksum": 207},
+      "construction_note": "Invented non-1 result to exercise the specified non-acceptance branch. Does NOT establish that the hood emits result 0 or identify a device error meaning."
+    },
+    {
+      "id": "synthetic_connect_firmware",
+      "kind": "connect",
+      "evidence": "synthetic",
+      "source_id": "documented_protocol",
+      "direction": "hood_to_server",
+      "topic_suffix": "connect",
+      "payload_hex": "010303001d01000c02000c3f",
+      "expected": {"header_byte_0": 1, "module_count": 3, "firmware": [[3, 29], [1, 12], [2, 12]], "checksum": 63},
+      "construction_note": "Application firmware announcement, NOT an MQTT CONNECT packet. Module values are mentioned in the 2026-10-05 GET_INFO summary (notes.md:221); using them in this wire layout and order is a reconstruction, not observed MQTT evidence."
+    },
+    {
+      "id": "synthetic_time_big_endian",
+      "kind": "time",
+      "evidence": "synthetic",
+      "source_id": "documented_protocol",
+      "direction": "server_to_hood",
+      "topic_suffix": "time",
+      "payload_hex": "010203040a",
+      "expected": {"epoch": 16909060, "checksum": 10},
+      "construction_note": "Distinct chosen epoch bytes pin big-endian encoding and additive checksum; not an observed timestamp."
+    },
+    {
+      "id": "synthetic_connected_empty",
+      "kind": "connected",
+      "evidence": "synthetic",
+      "source_id": "documented_protocol",
+      "direction": "server_to_hood",
+      "topic_suffix": "connected",
+      "payload_hex": "",
+      "expected": {"payload_length": 0},
+      "construction_note": "Instantiates the documented empty application payload. No checksum, MQTT headers, or recorded packet flags are implied."
+    },
+    {
+      "id": "synthetic_ping_empty",
+      "kind": "ping",
+      "evidence": "synthetic",
+      "source_id": "documented_protocol",
+      "direction": "hood_to_server",
+      "topic_suffix": "ping",
+      "payload_hex": "",
+      "expected": {"payload_length": 0},
+      "construction_note": "Instantiates the documented empty application ping payload, not MQTT PINGREQ. No checksum or MQTT envelope is included."
+    }
+  ]
+}

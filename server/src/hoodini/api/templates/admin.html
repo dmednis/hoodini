@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Hoodini · Administration</title>
+  <link rel="stylesheet" href="./assets/pico.min.css">
+  <link rel="stylesheet" href="./assets/admin.css">
+  <script src="./assets/admin.js" defer></script>
+</head>
+<body>
+  <header class="container page-header">
+    <div><p class="eyebrow">Local hood gateway</p><h1>Hoodini</h1>
+      <p class="subtle">Setup, connection health and diagnostics.</p></div>
+    <label class="theme-label">Appearance
+      <select id="theme" aria-label="Appearance"><option value="auto">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
+    </label>
+  </header>
+  <main class="container">
+    <noscript><p role="status">Live refresh and token reveal need JavaScript. Device settings still work; reload to see new reports.</p></noscript>
+    <section aria-labelledby="devices-heading">
+      <div class="section-header"><div><h2 id="devices-heading">Your hoods</h2><p id="device-summary" class="subtle">$summary</p></div>
+        <button id="refresh" class="secondary outline" type="button" hidden>Refresh</button></div>
+      <p id="refresh-status" class="subtle" role="status">Reload this page to update reports.</p>
+      <div id="devices" class="device-grid">$devices</div>
+    </section>
+    <section aria-labelledby="access-heading">
+      <article>
+        <h2 id="access-heading">API access</h2>
+        <p>Use this token when the pairing CLI asks to upload device details. It authorizes changes to all paired hoods—keep it private.</p>
+        <button id="reveal-token" class="secondary" type="button" hidden aria-expanded="false" aria-controls="token-panel">Reveal API token</button>
+        <div id="token-panel" hidden>
+          <label for="api-token">API token</label>
+          <div class="token-row"><input id="api-token" type="text" readonly autocomplete="off" spellcheck="false"><button id="copy-token" class="secondary" type="button">Copy</button></div>
+        </div>
+        <p id="token-status" class="subtle" role="status"></p>
+      </article>
+    </section>
+    <section aria-labelledby="diagnostics-heading">
+      <div class="section-header"><div><h2 id="diagnostics-heading">Recent diagnostics</h2><p id="diagnostic-summary" class="subtle">$diagnostic_summary</p></div></div>
+      <p class="subtle">Protocol traffic, not Home Assistant's Activity log. Raw details can contain device identifiers; review before sharing.</p>
+      <div id="diagnostics">$diagnostics</div>
+    </section>
+  </main>
+</body>
+</html>

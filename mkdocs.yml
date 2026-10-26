@@ -1,0 +1,51 @@
+site_name: Hoodini
+site_url: https://dmednis.github.io/hoodini/
+repo_url: https://github.com/dmednis/hoodini
+edit_uri: edit/main/docs/
+theme:
+  name: material
+  logo: assets/icon.svg
+  favicon: assets/icon.svg
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.instant
+    - content.code.copy
+    - search.suggest
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - attr_list
+  - toc:
+      permalink: true
+nav:
+  - Home: index.md
+  - Getting started:
+      - Requirements: getting-started/requirements.md
+      - Home Assistant add-on: getting-started/home-assistant-addon.md
+      - Standalone: getting-started/standalone.md
+      - Pairing: getting-started/pairing.md
+      - Updating: getting-started/updating.md
+  - Using Hoodini:
+      - Home Assistant: using/home-assistant.md
+      - Dashboard: using/dashboard.md
+      - Going back to Elica: using/going-back-to-elica.md
+  - Reference:
+      - Configuration: reference/configuration.md
+      - Supported hoods: reference/supported-hoods.md
+      - Known limitations: reference/known-limitations.md
+      - Troubleshooting: reference/troubleshooting.md
+      - Security: reference/security.md
+      - How it works: reference/how-it-works.md
+  - Contributing:
+      - Development: contributing/development.md
+      - Adding a hood model: contributing/adding-a-hood-model.md

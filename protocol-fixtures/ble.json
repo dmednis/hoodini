@@ -1,0 +1,23 @@
+{
+  "provenance": "Original explicitly synthetic examples; not observed hardware captures",
+  "limitations": "Reply CRC rule and SET_LEN payload encoding are unverified; these are outbound examples only",
+  "examples": [
+    {
+      "name": "GET_INFO",
+      "command": 2,
+      "payload_utf8": "",
+      "frame_hex": "5553480200b849"
+    },
+    {
+      "name": "NETWORK_PAR",
+      "command": 6,
+      "ssid_utf8": "TestNet",
+      "auth": "WPA2",
+      "psk": "fictional-pass",
+      "server_ip": "192.0.2.4",
+      "auth_pwd": "fictional-key",
+      "payload_utf8": "{\"SSID\":\"TestNet\",\"AUTH\":\"WPA2\",\"PWD\":\"fictional-pass\",\"ServerIP\":\"192.0.2.4\",\"ServerURL\":\"192.0.2.4\",\"ServerPort\":\"1883\",\"AUTH_PWD\":\"fictional-key\"}",
+      "frame_hex": "55534806957b2253534944223a22546573744e6574222c2241555448223a2257504132222c22505744223a2266696374696f6e616c2d70617373222c225365727665724950223a223139322e302e322e34222c2253657276657255524c223a223139322e302e322e34222c22536572766572506f7274223a2231383833222c22415554485f505744223a2266696374696f6e616c2d6b6579227d8282"
+    }
+  ]
+}

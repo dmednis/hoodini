@@ -1,0 +1,1 @@
+{"classes":[{"name":"Lsynthetic/IotProdServerConfiguration;","methods":[{"name":"getUserLevelPassword","descriptor":"()Ljava/lang/String;","instructions":[["const-string","v0","SYNTHETIC-SETUP-KEY"],["return-object","v0"]]}]}]}

@@ -1,0 +1,214 @@
+{
+  "availability": [
+    {
+      "topic": "hoodini/bridge/state"
+    },
+    {
+      "topic": "hoodini/abc/availability"
+    }
+  ],
+  "availability_mode": "all",
+  "cmps": {
+    "boost_remaining": {
+      "default_entity_id": "sensor.hoodini_abc_boost_remaining",
+      "entity_category": "diagnostic",
+      "name": "Boost remaining (inferred)",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_boost_remaining",
+      "unit_of_measurement": "min",
+      "value_template": "{{ value_json['fan_timeout2'] }}"
+    },
+    "cap_110": {
+      "default_entity_id": "sensor.hoodini_abc_cap_110",
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Cap 110",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_cap_110",
+      "value_template": "{{ value_json['fan_speed'] }}"
+    },
+    "cap_128": {
+      "default_entity_id": "sensor.hoodini_abc_cap_128",
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Cap 128",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_cap_128",
+      "value_template": "{{ value_json['grease_filter_level_pct'] }}"
+    },
+    "cap_129": {
+      "default_entity_id": "sensor.hoodini_abc_cap_129",
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Cap 129",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_cap_129",
+      "value_template": "{{ value_json['charcoal_filter_level_pct'] }}"
+    },
+    "cap_131": {
+      "default_entity_id": "sensor.hoodini_abc_cap_131",
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Cap 131",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_cap_131",
+      "value_template": "{{ value_json['filter_enabler'] }}"
+    },
+    "cap_245": {
+      "default_entity_id": "sensor.hoodini_abc_cap_245",
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Cap 245",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_cap_245",
+      "value_template": "{{ value_json['cap_245'] }}"
+    },
+    "cap_5": {
+      "default_entity_id": "sensor.hoodini_abc_cap_5",
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Cap 5",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_cap_5",
+      "value_template": "{{ value_json['fault_warnings_main'] }}"
+    },
+    "cap_6": {
+      "default_entity_id": "sensor.hoodini_abc_cap_6",
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Cap 6",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_cap_6",
+      "value_template": "{{ value_json['fault_warnings_UI'] }}"
+    },
+    "cap_64": {
+      "default_entity_id": "sensor.hoodini_abc_cap_64",
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Cap 64",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_cap_64",
+      "value_template": "{{ value_json['fan_mode1'] }}"
+    },
+    "cap_69": {
+      "default_entity_id": "sensor.hoodini_abc_cap_69",
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Cap 69",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_cap_69",
+      "value_template": "{{ value_json['fan_timeout2'] }}"
+    },
+    "cap_96": {
+      "default_entity_id": "sensor.hoodini_abc_cap_96",
+      "enabled_by_default": false,
+      "entity_category": "diagnostic",
+      "name": "Cap 96",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_cap_96",
+      "value_template": "{{ value_json['cooktop_light_intensity'] }}"
+    },
+    "charcoal_filter": {
+      "default_entity_id": "sensor.hoodini_abc_charcoal_filter",
+      "name": "Charcoal Filter",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_charcoal_filter",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value_json['charcoal_filter_level_pct'] }}"
+    },
+    "fan": {
+      "command_template": "{\"state\":{{ value | tojson }}}",
+      "command_topic": "hoodini/abc/set/fan",
+      "default_entity_id": "fan.hoodini_abc_fan",
+      "name": "Fan",
+      "p": "fan",
+      "percentage_command_template": "{\"speed\":{{ value | int }}}",
+      "percentage_command_topic": "hoodini/abc/set/fan",
+      "percentage_state_topic": "hoodini/abc/state",
+      "percentage_value_template": "{{ value_json['fan_speed'] }}",
+      "preset_mode_command_template": "{\"preset_mode\":{{ value | tojson }}}",
+      "preset_mode_command_topic": "hoodini/abc/set/fan",
+      "preset_mode_state_topic": "hoodini/abc/state",
+      "preset_mode_value_template": "{% if value_json.fan_mode1 | int(0) == 5 %}boost{% else %}None{% endif %}",
+      "preset_modes": [
+        "boost"
+      ],
+      "speed_range_max": 3,
+      "speed_range_min": 1,
+      "state_topic": "hoodini/abc/state",
+      "state_value_template": "{% if value_json.fan_speed | int(0) > 0 or value_json.fan_mode1 | int(0) == 5 %}ON{% else %}OFF{% endif %}",
+      "unique_id": "hoodini_abc_fan"
+    },
+    "fault": {
+      "default_entity_id": "binary_sensor.hoodini_abc_fault",
+      "device_class": "problem",
+      "entity_category": "diagnostic",
+      "name": "Fault",
+      "p": "binary_sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_fault",
+      "value_template": "{% if value_json.fault_warnings_main | int(0) != 0 or value_json.fault_warnings_UI | int(0) != 0 %}ON{% else %}OFF{% endif %}"
+    },
+    "grease_filter": {
+      "default_entity_id": "sensor.hoodini_abc_grease_filter",
+      "name": "Grease Filter",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_grease_filter",
+      "unit_of_measurement": "%",
+      "value_template": "{{ value_json['grease_filter_level_pct'] }}"
+    },
+    "light": {
+      "brightness_command_template": "{\"brightness\":{{ value | int }}}",
+      "brightness_command_topic": "hoodini/abc/set/light",
+      "brightness_scale": 100,
+      "brightness_state_topic": "hoodini/abc/state",
+      "brightness_value_template": "{{ value_json['cooktop_light_intensity'] }}",
+      "command_topic": "hoodini/abc/set/light",
+      "default_entity_id": "light.hoodini_abc_light",
+      "name": "Light",
+      "on_command_type": "first",
+      "p": "light",
+      "payload_off": "{\"state\":\"OFF\"}",
+      "payload_on": "{\"state\":\"ON\"}",
+      "schema": "basic",
+      "state_topic": "hoodini/abc/state",
+      "state_value_template": "{% if value_json.cooktop_light_intensity | int(0) > 0 %}{\"state\":\"ON\"}{% else %}{\"state\":\"OFF\"}{% endif %}",
+      "unique_id": "hoodini_abc_light"
+    },
+    "rssi": {
+      "default_entity_id": "sensor.hoodini_abc_rssi",
+      "entity_category": "diagnostic",
+      "name": "Rssi",
+      "p": "sensor",
+      "state_topic": "hoodini/abc/state",
+      "unique_id": "hoodini_abc_rssi",
+      "unit_of_measurement": "dBm",
+      "value_template": "{{ value_json['rssi'] }}"
+    }
+  },
+  "dev": {
+    "identifiers": [
+      "hoodini_abc"
+    ],
+    "manufacturer": "Elica",
+    "model": "PRF0182867A",
+    "name": "Hoodini abc",
+    "sw_version": "1:12"
+  },
+  "o": {
+    "name": "Hoodini"
+  }
+}

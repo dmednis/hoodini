@@ -1,0 +1,26 @@
+services:
+  hoodini:
+    image: ghcr.io/dmednis/hoodini:0.1.0
+    build: .
+    # Linux host networking binds 8883 and 8765 directly; standalone admin
+    # remains on host loopback 127.0.0.1:8099, never publicly exposed.
+    # Docker Desktop for macOS host networking differs from Linux; native
+    # `uv run hoodini serve` is recommended on macOS.
+    network_mode: host
+    # Create ./data before first start (mkdir -p data); the entrypoint fixes
+    # ownership to UID/GID 999:999 and mode 0700 before dropping privileges.
+    volumes:
+      - type: bind
+        source: ./data
+        target: /data
+        bind:
+          create_host_path: false
+    # Optional private config: mount ./config.toml:/config/config.toml:ro
+    # and add command: ["serve", "--config", "/config/config.toml"].
+    # If copying config.example.toml, set its data_dir to /data (the explicit
+    # TOML value overrides the image's environment default).
+    # Mosquitto add-on reserves host 8883 by default even without TLS. Manually
+    # blank/remap its Network-card mapping; existing clients must be updated.
+    # Mosquitto may enable TLS when certificate/key files exist; do not remap
+    # hood's fixed 8883 or change broker mappings automatically.
+    restart: unless-stopped

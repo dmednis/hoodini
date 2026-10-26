@@ -1,0 +1,22 @@
+# Nothing enters the context unless explicitly re-included below.
+*
+!pyproject.toml
+!uv.lock
+!server/pyproject.toml
+!server/src/
+!server/src/**
+!LICENSE
+!docker-entrypoint.sh
+# Deny sensitive or generated files even if placed under server/src.
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.log
+**/*.pcap
+**/*.pcapng
+**/.env*
+**/credentials*
+**/secrets*
+**/__pycache__/
+**/*.py[cod]

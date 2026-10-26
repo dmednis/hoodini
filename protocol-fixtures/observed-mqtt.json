@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "layer": "mqtt_application_payload",
+  "scope": "Payload bytes only; no MQTT envelope, real topic prefix, or device identifier.",
+  "fixtures": [
+    {
+      "id": "observed_light_on_seq24",
+      "kind": "command",
+      "evidence": "observed_transcription",
+      "source_id": "re_notes_light_commands",
+      "source_line": 174,
+      "direction": "server_to_hood",
+      "topic_suffix": "op/mode",
+      "payload_hex": "002a8d1800007530006064004701000080",
+      "expected": {
+        "seq": 24,
+        "caps": [[96, 100]],
+        "remote_cmd": [71, 1],
+        "checksum": 128
+      },
+      "proves": [
+        "Exact reproduction of the Light ON command transcribed from the 2026-08-24 observation",
+        "Sequence byte at offset 3",
+        "Brightness 100 encoded little-endian",
+        "Exactly one remote-command trailer before the terminator"
+      ],
+      "limitations": [
+        "Compared with a dated RE-note transcription, not the original raw capture",
+        "No corresponding ack or status payload is supplied by this source excerpt",
+        "Does not establish MQTT flags, retain bits, QoS, or packet identifiers"
+      ]
+    },
+    {
+      "id": "observed_light_off_seq25",
+      "kind": "command",
+      "evidence": "observed_transcription",
+      "source_id": "re_notes_light_commands",
+      "source_line": 175,
+      "direction": "server_to_hood",
+      "topic_suffix": "op/mode",
+      "payload_hex": "002a8d190000753000600000470100001d",
+      "expected": {
+        "seq": 25,
+        "caps": [[96, 0]],
+        "remote_cmd": [71, 1],
+        "checksum": 29
+      },
+      "proves": [
+        "Exact reproduction of the Light OFF command transcribed from the 2026-08-24 observation",
+        "Zero brightness remains an explicit capability entry",
+        "Changed sequence and value produce the independently recorded checksum 0x1d"
+      ],
+      "limitations": [
+        "Compared with a dated RE-note transcription, not the original raw capture",
+        "No corresponding ack or status payload is supplied by this source excerpt",
+        "Does not establish MQTT flags, retain bits, QoS, or packet identifiers"
+      ]
+    }
+  ]
+}

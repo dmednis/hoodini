@@ -1,0 +1,31 @@
+# Schema: home-assistant/supervisor 87984b62bd7caa16b1960d4da5590a9b5a366174,
+# supervisor/apps/validate.py SCHEMA_APP_TRANSLATIONS (configuration/fields).
+# Host networking has no Supervisor port mappings, so no network translations.
+configuration:
+  log_level:
+    name: Log level
+    description: Use DEBUG only while troubleshooting.
+  mqtt:
+    name: MQTT broker
+    description: Leave empty to use the Supervisor MQTT service.
+    fields:
+      url:
+        name: Broker URL
+        description: Include scheme and port, such as mqtt://broker.example.com:1883.
+      username:
+        name: Username
+      password:
+        name: Password
+      tls:
+        name: TLS
+        description: Enable TLS with a certificate trusted by the system.
+  api:
+    name: LAN API
+    description: Leave empty unless pairing cannot find the server.
+    fields:
+      port:
+        name: LAN API port
+      interfaces:
+        name: Advertised interfaces
+      addresses:
+        name: Advertised addresses

@@ -1,0 +1,1 @@
+"""Pure Home Assistant translation."""
