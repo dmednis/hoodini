@@ -9,10 +9,12 @@ import asyncio
 import os
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 from aiohttp import ClientSession, web
 from hoodini.api.admin import create_admin_app
 from hoodini.devices.models import DeviceView
+from hoodini.ha_bridge.client import BrokerStatus
 from hoodini.protocol.profiles import resolve_profile
 from playwright.async_api import async_playwright
 
@@ -80,8 +82,19 @@ async def start(app):
 
 async def main():
     devices = Devices()
-    runner, base = await start(
+    bridge = SimpleNamespace(status=BrokerStatus("connecting", "synthetic-broker:1883"))
+    default_runner, default_base = await start(
         create_admin_app(devices, "SYNTHETIC-ONLY-TOKEN", Diagnostics(), addon=False)
+    )
+    runner, base = await start(
+        create_admin_app(
+            devices,
+            "SYNTHETIC-ONLY-TOKEN",
+            Diagnostics(),
+            addon=False,
+            bridge=bridge,
+            broker_source="explicit",
+        )
     )
     proxy_runner = None
     errors, external, requests = [], [], []
@@ -138,7 +151,9 @@ async def main():
                 )
 
                 async def local_only(route):
-                    if not route.request.url.startswith((base + "/", proxy_base + "/")):
+                    if not route.request.url.startswith(
+                        (base + "/", proxy_base + "/", default_base + "/")
+                    ):
                         external.append(route.request.url)
                         await route.abort()
                     else:
@@ -156,11 +171,20 @@ async def main():
                         else None
                     ),
                 )
+                await page.goto(default_base)
+                await page.locator("#reveal-token").wait_for(state="visible")
+                assert (
+                    await page.locator("#broker .badge").inner_text()
+                    == "Not configured"
+                )
+                assert "Not configured" in await page.locator("#broker").inner_text()
                 await page.goto(base)
                 await page.locator("#reveal-token").wait_for(state="visible")
+                assert await page.locator("#broker .badge").inner_text() == "Connecting"
+                assert "Configured broker" in await page.locator("#broker").inner_text()
                 assert not any(url.endswith("/token") for url in requests)
                 assert "SYNTHETIC-ONLY-TOKEN" not in await page.content()
-                assert await page.locator(".badge").inner_text() == "Online"
+                assert await page.locator("#devices .badge").inner_text() == "Online"
                 assert await page.locator('select[name="profile"]').input_value() == ""
                 assert await page.locator("#api-token").is_hidden()
                 await page.locator("#reveal-token").click()
@@ -186,14 +210,33 @@ async def main():
                     "() => document.getElementById('token-status').textContent.includes('manually')"
                 )
                 await page.locator("#reveal-token").click()
+                bridge.status = BrokerStatus(
+                    "connected", "synthetic-broker:1883", since=1792400000
+                )
+                await page.locator("#refresh").click()
+                await page.wait_for_function(
+                    "() => document.querySelector('#broker .badge').textContent === 'Connected'"
+                )
+                assert "Not announced yet" in await page.locator("#broker").inner_text()
                 # Open settings pause refresh and preserve unsaved selections.
                 await page.get_by_text("Device settings", exact=True).click()
                 await page.locator('select[name="profile"]').select_option("GENERIC")
+                retrying = BrokerStatus(
+                    "retrying",
+                    "synthetic-" + "long-broker-label-" * 12 + ".local:1883",
+                    since=1792400001,
+                    reason="connection refused",
+                    retry_at=4102444800,
+                    ha_state="offline",
+                    ha_seen_at=1792400000,
+                )
+                bridge.status = retrying
                 devices.views[0] = replace(
                     devices.views[0], caps={96: 20, 110: 3, 64: 1}
                 )
                 await page.locator("#refresh").click()
                 assert "paused" in await page.locator("#refresh-status").inner_text()
+                assert await page.locator("#broker .badge").inner_text() == "Connected"
                 assert (
                     await page.locator('select[name="profile"]').input_value()
                     == "GENERIC"
@@ -228,6 +271,15 @@ async def main():
                         )
                     ) from error
                 assert "Speed 3" in await page.locator("#devices").inner_text()
+                assert (
+                    await page.locator("#broker .badge").inner_text() == "Disconnected"
+                )
+                assert (
+                    "Offline — last received"
+                    in await page.locator("#broker").inner_text()
+                )
+                previous_broker = await page.locator("#broker").inner_html()
+                bridge.status = BrokerStatus("connected", "synthetic-broker:1883")
                 # Failed refresh is visible; previous reports remain on screen.
                 await page.route("**/snapshot", lambda route: route.abort())
                 await page.locator("#refresh").click()
@@ -235,6 +287,8 @@ async def main():
                     "() => document.getElementById('refresh-status').textContent.startsWith('Cannot')"
                 )
                 assert "Speed 3" in await page.locator("#devices").inner_text()
+                assert await page.locator("#broker").inner_html() == previous_broker
+                bridge.status = retrying
                 await page.unroute("**/snapshot")
                 await page.locator("#refresh").click()
                 await page.wait_for_function(
@@ -263,6 +317,21 @@ async def main():
                 await page.goto(proxy_base)
                 frame = page.frame_locator('iframe[title="Hoodini"]')
                 await frame.locator("#reveal-token").wait_for(state="visible")
+                assert (
+                    await frame.locator("#broker .badge").inner_text() == "Disconnected"
+                )
+                bridge.status = replace(
+                    retrying, state="connected", reason=None, retry_at=None
+                )
+                await frame.locator("#refresh").click()
+                await page.wait_for_function(
+                    "() => document.querySelector('iframe').contentDocument.querySelector('#broker .badge').textContent === 'Connected'"
+                )
+                assert any(
+                    url == proxy_base + "/ingress/synthetic/snapshot"
+                    for url in requests
+                )
+                bridge.status = retrying
                 await frame.locator("#reveal-token").click()
                 await frame.locator("#token-panel").wait_for(state="visible")
                 assert (
@@ -280,7 +349,7 @@ async def main():
                 devices.views[0] = replace(devices.views[0], online=False)
                 await page.locator("#refresh").click()
                 await page.wait_for_function(
-                    "() => document.querySelector('.badge').textContent === 'Waiting for first status'"
+                    "() => document.querySelector('#devices .badge').textContent === 'Waiting for first status'"
                 )
                 assert (
                     "Awaiting fresh status"
@@ -308,17 +377,22 @@ async def main():
                     "No hoods paired yet", exact=True
                 ).is_visible()
                 assert await nojs_page.locator("#reveal-token").is_hidden()
+                assert (
+                    await nojs_page.locator("#broker .badge").inner_text()
+                    == "Disconnected"
+                )
                 await nojs.close()
                 assert not errors, errors
                 assert not external, external
                 await browser.close()
         print(
-            "PASS: desktop/mobile, light/dark, token reveal/hide/copy/fallback, refresh/pause/failure, settings, forget cancellation, ingress-style iframe, status/empty states; no JS/CSP errors or external requests"
+            "PASS: desktop/mobile, light/dark, token reveal/hide/copy/fallback, refresh/pause/failure, settings, forget cancellation, ingress-style iframe, broker/HA seen/status/empty states; no JS/CSP errors or external requests"
         )
     finally:
         if proxy_runner:
             await proxy_runner.cleanup()
         await runner.cleanup()
+        await default_runner.cleanup()
 
 
 if __name__ == "__main__":

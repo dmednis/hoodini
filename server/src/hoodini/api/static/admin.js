@@ -44,6 +44,7 @@
       // These fragments are rendered and escaped by our own protected admin endpoint.
       devices.innerHTML = data.devices;
       diagnostics.innerHTML = data.diagnostics;
+      byId("broker").innerHTML = data.broker;
       byId("device-summary").textContent = data.summary;
       byId("diagnostic-summary").textContent = data.diagnostic_summary;
       refreshStatus.textContent = `Updated ${new Date().toLocaleTimeString()}. Refreshes every 5 seconds.`;

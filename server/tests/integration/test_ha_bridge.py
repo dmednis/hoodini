@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -235,6 +236,8 @@ def test_ha_online_republishes_and_profile_change_removes_component(broker, tmp_
                 await receive(
                     observer.messages, "homeassistant/device/hoodini_hood1/config"
                 )
+                assert bridge.status.ha_state == "online"
+                assert bridge.status.ha_seen_at is not None
             finally:
                 await bridge.stop()
 
@@ -389,6 +392,8 @@ def test_graceful_stop_retains_offline_bridge_without_changing_device(broker, tm
             await bridge.start()
             await receive(observer.messages, "hoodini/bridge/state", b"online")
             await bridge.stop()
+            assert bridge.status.state == "stopped"
+            assert bridge.status.reason is bridge.status.retry_at is None
         async with client(broker.url) as fresh:
             await fresh.subscribe("hoodini/bridge/state")
             assert (
@@ -488,6 +493,7 @@ def test_reconnect_delay_resets_after_online(tmp_path):
             calls += 1
             if calls == 3:
                 bridge._online = True
+                bridge._transition("connected")
                 return
             raise OSError("synthetic unavailable")
 
@@ -777,6 +783,511 @@ def test_rapid_commands_coalesce_to_latest_per_entity(broker, tmp_path):
                 ("hood1", {96: 55}),
                 ("hood1", {110: 2, 64: 1}),
             ]
+        finally:
+            await bridge.stop()
+
+    asyncio.run(scenario())
+
+
+async def wait_until(predicate, timeout=5):
+    async with asyncio.timeout(timeout):
+        while not predicate():
+            await asyncio.sleep(0.01)
+
+
+def test_status_tracks_each_state_start_and_retry_deadline(tmp_path):
+    async def scenario():
+        now = 1000
+        attempts, retries = [], []
+        blocked = asyncio.Event()
+        bridge = HaBridge(
+            MqttSettings("mqtt://broker"),
+            Devices([]),
+            AtomicStore(tmp_path),
+            clock=lambda: now,
+            jitter=lambda: 0,
+        )
+
+        async def connection():
+            nonlocal now
+            attempts.append(bridge.status)
+            if len(attempts) == 3:
+                blocked.set()
+                await asyncio.Event().wait()
+            now = 1010 if len(attempts) == 1 else 1021
+            raise OSError("connection refused SYNTHETICSECRET")
+
+        async def sleep(delay):
+            nonlocal now
+            retries.append(bridge.status)
+            now += delay
+            await asyncio.sleep(0)
+
+        bridge._connection, bridge._sleep = connection, sleep
+        await bridge.start()
+        try:
+            await asyncio.wait_for(blocked.wait(), 2)
+            assert [(s.state, s.since, s.retry_at) for s in attempts] == [
+                ("connecting", 1000, None),
+                ("connecting", 1011, None),
+                ("connecting", 1023, None),
+            ]
+            assert [s.reason for s in attempts] == [
+                None,
+                "connection refused",
+                "connection refused",
+            ]
+            assert [(s.state, s.since, s.retry_at) for s in retries] == [
+                ("retrying", 1010, 1011),
+                ("retrying", 1021, 1023),
+            ]
+            assert all(s.reason == "connection refused" for s in retries)
+            assert attempts[0].since == 1000  # Previously read snapshots never mutate.
+        finally:
+            await bridge.stop()
+
+    asyncio.run(scenario())
+
+
+def test_status_recovery_clears_reason_and_resets_backoff(tmp_path):
+    async def scenario():
+        now = 1000
+        delays, recovered = [], []
+        enough = asyncio.Event()
+        bridge = HaBridge(
+            MqttSettings("mqtt://broker"),
+            Devices([]),
+            AtomicStore(tmp_path),
+            clock=lambda: now,
+            jitter=lambda: 0,
+        )
+        bridge._status = replace(bridge.status, ha_state="online", ha_seen_at=900)
+        calls = 0
+
+        async def connection():
+            nonlocal calls, now
+            calls += 1
+            now += 10
+            if calls == 3:
+                bridge._online = True
+                bridge._transition("connected")
+                recovered.append(bridge.status)
+                now += 5
+            raise OSError("refused")
+
+        async def sleep(delay):
+            nonlocal now
+            delays.append(delay)
+            now += delay
+            if len(delays) == 4:
+                enough.set()
+                await asyncio.Event().wait()
+
+        bridge._connection, bridge._sleep = connection, sleep
+        await bridge.start()
+        try:
+            await asyncio.wait_for(enough.wait(), 2)
+            assert delays == [1, 2, 1, 2]
+            assert recovered[0].since == 1033
+            assert recovered[0].reason is recovered[0].retry_at is None
+            assert (bridge.status.ha_state, bridge.status.ha_seen_at) == ("online", 900)
+        finally:
+            await bridge.stop()
+
+    asyncio.run(scenario())
+
+
+def test_status_retry_deadline_matches_jittered_sleep_and_cap(tmp_path):
+    async def scenario():
+        now = 0
+        delays = []
+        enough = asyncio.Event()
+        bridge = HaBridge(
+            MqttSettings("mqtt://broker"),
+            Devices([]),
+            AtomicStore(tmp_path),
+            clock=lambda: now,
+            jitter=lambda: 0.25,
+        )
+
+        async def connection():
+            raise OSError("refused")
+
+        async def sleep(delay):
+            nonlocal now
+            assert bridge.status.state == "retrying"
+            assert bridge.status.retry_at == now + delay
+            delays.append(delay)
+            now += delay
+            if len(delays) == 9:
+                enough.set()
+                await asyncio.Event().wait()
+
+        bridge._connection, bridge._sleep = connection, sleep
+        await bridge.start()
+        try:
+            await asyncio.wait_for(enough.wait(), 2)
+            assert delays == [1.25, 2.25, 4.25, 8.25, 16.25, 32.25, 60.25, 60.25, 60.25]
+        finally:
+            await bridge.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "failure", ["changes", "both", "subscription", "normal", "cancelled"]
+)
+def test_status_handles_change_failure_and_subscription_replacement(tmp_path, failure):
+    async def scenario():
+        paused = asyncio.Event()
+        ready = asyncio.Event()
+        devices = Devices([])
+        bridge = HaBridge(
+            MqttSettings("mqtt://broker"),
+            devices,
+            AtomicStore(tmp_path),
+            jitter=lambda: 0,
+        )
+        bridge._status = replace(bridge.status, ha_state="offline", ha_seen_at=1)
+
+        async def connection():
+            bridge._online = True
+            bridge._transition("connected")
+            ready.set()
+            if failure == "both":
+                raise OSError("connection refused")
+            if failure == "normal":
+                return
+            if failure == "cancelled":
+                raise asyncio.CancelledError
+            if failure == "subscription":
+                bridge._subscription()
+            await asyncio.Event().wait()
+
+        async def changes():
+            await ready.wait()
+            if failure in ("changes", "both"):
+                raise OSError("network unreachable")
+            await asyncio.Event().wait()
+
+        async def sleep(_):
+            paused.set()
+            await asyncio.Event().wait()
+
+        bridge._connection, bridge._changes, bridge._sleep = connection, changes, sleep
+        await bridge.start()
+        original_subscription = bridge._subscription
+        try:
+            await asyncio.wait_for(paused.wait(), 2)
+            expected = {
+                "changes": "network unreachable",
+                "both": "connection refused",
+            }.get(failure)
+            assert (
+                bridge.status.state == "retrying" and bridge.status.reason == expected
+            )
+            assert bridge.status.retry_at is not None
+            assert bridge.status.ha_state == "offline"
+            assert len(devices.listeners) == 1
+            if failure == "subscription":
+                assert bridge._subscription is not original_subscription
+        finally:
+            await bridge.stop()
+        assert not devices.listeners
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("phase", ["connecting", "retrying"])
+def test_status_stop_during_connect_or_retry_does_not_retry(tmp_path, phase):
+    async def scenario():
+        now = 1000
+        reached = asyncio.Event()
+        attempts = []
+        devices = Devices([])
+        bridge = HaBridge(
+            MqttSettings("mqtt://broker"),
+            devices,
+            AtomicStore(tmp_path),
+            clock=lambda: now,
+        )
+        bridge._status = replace(bridge.status, ha_state="online", ha_seen_at=900)
+        await bridge.stop()
+        assert bridge.status.state == "stopped" and bridge._task is None
+
+        async def connection():
+            attempts.append(bridge.status)
+            if phase == "retrying":
+                raise OSError("refused")
+            reached.set()
+            await asyncio.Event().wait()
+
+        async def sleep(_):
+            reached.set()
+            await asyncio.Event().wait()
+
+        bridge._connection, bridge._sleep = connection, sleep
+        await bridge.start()
+        try:
+            await asyncio.wait_for(reached.wait(), 2)
+        finally:
+            await bridge.stop()
+        stopped = bridge.status
+        await bridge.stop()
+        assert bridge.status == stopped and stopped.state == "stopped"
+        assert stopped.reason is stopped.retry_at is None
+        assert bridge._task is bridge._subscription is None and not devices.listeners
+        assert len(attempts) == 1
+        now = 2000
+        reached.clear()
+        await bridge.start()
+        await bridge.start()
+        try:
+            assert bridge.status.state == "connecting" and bridge.status.since == 2000
+            await asyncio.wait_for(reached.wait(), 2)
+            assert len(devices.listeners) == 1 and len(attempts) == 2
+            assert (bridge.status.ha_state, bridge.status.ha_seen_at) == ("online", 900)
+        finally:
+            await bridge.stop()
+
+    asyncio.run(scenario())
+
+
+def test_connection_failure_status_is_safe_before_cleanup_finishes(
+    tmp_path, monkeypatch
+):
+    async def scenario():
+        cleanup, release, retry = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+        class ProbeClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def subscribe(self, *args, **kwargs):
+                pass
+
+            async def publish(self, *args, **kwargs):
+                pass
+
+        monkeypatch.setattr("hoodini.ha_bridge.client.aiomqtt.Client", ProbeClient)
+        bridge = HaBridge(
+            MqttSettings("mqtt://broker"), Devices([]), AtomicStore(tmp_path)
+        )
+
+        async def messages(_):
+            assert bridge.status.state == "connected"
+            raise OSError("refused SYNTHETICSECRET")
+
+        async def cancel_senders():
+            cleanup.set()
+            await release.wait()
+
+        async def sleep(_):
+            retry.set()
+            await asyncio.Event().wait()
+
+        bridge._messages, bridge._cancel_senders, bridge._sleep = (
+            messages,
+            cancel_senders,
+            sleep,
+        )
+        await bridge.start()
+        try:
+            await asyncio.wait_for(cleanup.wait(), 2)
+            status = bridge.status
+            assert status.state == "retrying" and status.retry_at is None
+            release.set()
+            await asyncio.wait_for(retry.wait(), 2)
+            assert (
+                bridge.status.reason == "connection refused"
+                and bridge.status.retry_at is not None
+            )
+            assert bridge.status.since == status.since
+        finally:
+            release.set()
+            await bridge.stop()
+
+    asyncio.run(scenario())
+
+
+def test_status_reports_connection_and_ha_announcements(broker, tmp_path):
+    async def scenario():
+        now = 1000
+        bridge = HaBridge(
+            MqttSettings(broker.url),
+            Devices([]),
+            AtomicStore(tmp_path),
+            clock=lambda: now,
+        )
+        await bridge.start()
+        try:
+            await wait_until(lambda: bridge.status.state == "connected")
+            status = bridge.status
+            target = urlsplit(broker.url)
+            assert status.endpoint == f"{target.hostname}:{target.port}"
+            assert (
+                status.since == 1000
+                and status.reason is status.retry_at is status.ha_state is None
+            )
+            async with client(broker.url) as observer:
+                for payload in (b"online", b"offline"):
+                    now += 1
+                    await observer.publish("homeassistant/status", payload, qos=1)
+                    await wait_until(
+                        lambda payload=payload: (
+                            bridge.status.ha_state == payload.decode()
+                        )
+                    )
+                    assert bridge.status.ha_seen_at == now
+                    assert (
+                        bridge.status.state == "connected"
+                        and bridge.status.since == status.since
+                    )
+                accepted = bridge.status
+                for payload in (b"ONLINE", b"", b"arbitrary"):
+                    await observer.publish("homeassistant/status", payload, qos=1)
+                # A valid later announcement is an ordered processing barrier.
+                now += 1
+                await observer.publish("homeassistant/status", b"online", qos=1)
+                await wait_until(lambda: bridge.status.ha_seen_at == now)
+                assert accepted.ha_state == "offline" and accepted.ha_seen_at == 1002
+                assert (
+                    bridge.status.ha_state == "online" and bridge.status.since == 1000
+                )
+        finally:
+            await bridge.stop()
+
+    asyncio.run(scenario())
+
+
+def test_status_captures_retained_ha_announcement_on_subscribe(broker, tmp_path):
+    async def scenario():
+        bridge = HaBridge(
+            MqttSettings(broker.url),
+            Devices([]),
+            AtomicStore(tmp_path),
+            clock=lambda: 1234,
+        )
+        async with client(broker.url) as observer:
+            await observer.publish(
+                "homeassistant/status", b"offline", qos=1, retain=True
+            )
+            await bridge.start()
+            try:
+                await wait_until(lambda: bridge.status.ha_state == "offline")
+                assert bridge.status.ha_seen_at == 1234
+            finally:
+                await bridge.stop()
+                await observer.publish("homeassistant/status", b"", qos=1, retain=True)
+
+    asyncio.run(scenario())
+
+
+def test_status_reports_broker_loss_then_recovery(broker, tmp_path):
+    async def scenario():
+        retry, release = asyncio.Event(), asyncio.Event()
+        captured = []
+
+        async def sleep(_):
+            captured.append(bridge.status)
+            retry.set()
+            await release.wait()
+
+        bridge = HaBridge(
+            MqttSettings(broker.url),
+            Devices([]),
+            AtomicStore(tmp_path),
+            sleep=sleep,
+            jitter=lambda: 0,
+        )
+        await bridge.start()
+        try:
+            await wait_until(lambda: bridge.status.state == "connected")
+            async with client(broker.url) as observer:
+                await observer.publish("homeassistant/status", b"online", qos=1)
+                await wait_until(lambda: bridge.status.ha_state == "online")
+            connected = bridge.status
+            await broker.restart()
+            await asyncio.wait_for(retry.wait(), 10)
+            status = captured[0]
+            assert (
+                status.state == "retrying"
+                and status.reason
+                and status.retry_at is not None
+            )
+            assert status.since > connected.since
+            assert (
+                status.ha_state == "online"
+                and status.ha_seen_at == connected.ha_seen_at
+            )
+            release.set()
+            await wait_until(lambda: bridge.status.state == "connected", timeout=30)
+            assert bridge.status.reason is bridge.status.retry_at is None
+            assert bridge.status.since > status.since
+        finally:
+            release.set()
+            await bridge.stop()
+
+    asyncio.run(scenario())
+
+
+def test_ha_observation_precedes_flush_and_ignores_unrecognized_payloads(tmp_path):
+    from types import SimpleNamespace
+
+    async def scenario():
+        now = 1000
+        bridge = HaBridge(
+            MqttSettings("mqtt://broker"),
+            Devices([]),
+            AtomicStore(tmp_path),
+            clock=lambda: now,
+        )
+        bridge._transition("connected")
+        flushes = []
+
+        async def flush():
+            flushes.append(bridge.status)
+            assert (
+                bridge.status.ha_state == "online" and bridge.status.ha_seen_at == now
+            )
+            await asyncio.sleep(0)
+
+        async def messages():
+            nonlocal now
+            for payload in (
+                b"online",
+                b"offline",
+                b"ONLINE",
+                b"",
+                b"arbitrary",
+                b"online",
+                b"online",
+            ):
+                before = bridge.status
+                now += 1
+                yield SimpleNamespace(
+                    topic="homeassistant/status", payload=payload, retain=True
+                )
+                if payload not in (b"online", b"offline"):
+                    assert bridge.status is before
+                else:
+                    assert bridge.status.ha_state == payload.decode()
+                    assert bridge.status.ha_seen_at == now
+                    assert bridge.status.since == 1000
+
+        bridge._flush = flush
+        try:
+            await asyncio.wait_for(
+                bridge._messages(SimpleNamespace(messages=messages())), 2
+            )
+            assert [s.ha_seen_at for s in flushes] == [1001, 1006, 1007]
+            assert bridge.status.ha_seen_at == 1007
         finally:
             await bridge.stop()
 

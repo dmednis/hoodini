@@ -16,8 +16,9 @@ def test_defaults_and_optional_broker():
     assert native.gateway.bind == "0.0.0.0"
     assert native.api.port == 8765
     assert native.admin.bind == "127.0.0.1:8099"
-    assert native.mqtt.url is None
+    assert native.mqtt.url is None and native.mqtt_source is None
     assert load_settings(None, addon=True).data_dir == Path("/data")
+    assert load_settings(None, addon=True).mqtt_source is None
 
 
 def test_toml_nested_settings_and_redaction(tmp_path):
@@ -31,6 +32,7 @@ def test_toml_nested_settings_and_redaction(tmp_path):
     )
     settings = load_settings(path)
     assert settings.mqtt.password == "synthetic-password"
+    assert settings.mqtt_source == "explicit"
     assert settings.api.interfaces == ("en0",)
     assert settings.api.addresses == ("192.0.2.1",)
     assert settings.gateway.bind == "127.0.0.1"
@@ -76,7 +78,9 @@ def test_cli_path_override_preserves_nested_config(tmp_path, monkeypatch):
     from hoodini import cli
 
     path = tmp_path / "settings.toml"
-    path.write_text('data_dir = "not-used"\ncapture = "legacy"\n[api]\nport = 9000\n')
+    path.write_text(
+        'data_dir = "not-used"\ncapture = "legacy"\n[api]\nport = 9000\n[mqtt]\nurl = "mqtt://synthetic-broker"\n'
+    )
     seen = []
 
     async def capture(settings):
@@ -99,6 +103,7 @@ def test_cli_path_override_preserves_nested_config(tmp_path, monkeypatch):
     cli.main()
     assert seen[0].data_dir == tmp_path / "override"
     assert seen[0].api.port == 9000
+    assert seen[0].mqtt_source == "explicit"
 
 
 def test_cli_mode_and_token_synthetic_only(tmp_path):
@@ -126,3 +131,17 @@ def test_cli_mode_and_token_synthetic_only(tmp_path):
     )
     assert result.returncode == 0
     assert result.stdout.strip() == (token_dir / "api_token").read_text()
+
+
+@pytest.mark.parametrize("addon", [False, True])
+def test_mqtt_source_is_internal_not_a_config_option(tmp_path, addon):
+    path = tmp_path / ("options.json" if addon else "config.toml")
+    path.write_text(
+        '{"mqtt_source": "synthetic-secret"}'
+        if addon
+        else 'mqtt_source = "synthetic-secret"\n'
+    )
+    with pytest.raises(ConfigError) as caught:
+        load_settings(path, addon=addon)
+    assert str(caught.value) == "Invalid runtime configuration."
+    assert caught.value.__cause__ is caught.value.__context__ is None

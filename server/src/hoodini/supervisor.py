@@ -81,7 +81,7 @@ async def resolve_mqtt_service(
     if settings.mqtt.url is not None:
         # An explicit broker is configured in full by the user; never send it the
         # Supervisor service's credentials.
-        return settings
+        return replace(settings, mqtt_source="explicit")
     try:
         data = await client._get("/services/mqtt")
         host, port = data["host"], data["port"]
@@ -95,9 +95,7 @@ async def resolve_mqtt_service(
         ):
             raise ValueError
         mqtt = MqttSettings(
-            url=settings.mqtt.url
-            if "url" in settings.mqtt_overrides or settings.mqtt.url is not None
-            else f"mqtt://{host}:{port}",
+            url=f"mqtt://{host}:{port}",
             username=settings.mqtt.username
             if "username" in settings.mqtt_overrides
             or settings.mqtt.username is not None
@@ -115,8 +113,8 @@ async def resolve_mqtt_service(
             for value in (mqtt.username, mqtt.password)
         ):
             raise ValueError
-        return replace(settings, mqtt=mqtt)
+        return replace(settings, mqtt=mqtt, mqtt_source="supervisor")
     except (SupervisorError, KeyError, ValueError, TypeError):
         if settings.mqtt.url is None:
             _LOG.warning(_RESTART)
-        return settings
+        return replace(settings, mqtt_source="unavailable")

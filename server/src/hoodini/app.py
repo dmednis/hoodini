@@ -111,12 +111,19 @@ class Runtime:
                     api = web.AppRunner(create_lan_app(devices, token))
                     await api.setup()
                     await web.TCPSite(api, "0.0.0.0", self.settings.api.port).start()
+                    if self.settings.mqtt.url is not None:
+                        bridge = HaBridge(self.settings.mqtt, devices, store)
+                    broker_source = self.settings.mqtt_source
+                    if self.settings.mqtt.url is not None and broker_source is None:
+                        broker_source = "explicit"
                     admin = web.AppRunner(
                         create_admin_app(
                             devices,
                             token,
                             diagnostics,
                             addon=addon,
+                            bridge=bridge,
+                            broker_source=broker_source,
                             ingress_context=self.ingress_context
                             if addon
                             else IngressContext(admin_host, admin_port, "/"),
@@ -131,8 +138,7 @@ class Runtime:
                     )
                     bonjour = Bonjour()
                     await bonjour.start(selected, self.settings.api.port)
-                    if self.settings.mqtt.url is not None:
-                        bridge = HaBridge(self.settings.mqtt, devices, store)
+                    if bridge is not None:
                         await bridge.start()
                     self.bridge = bridge
                     self.store, self.trust, self.token = store, trust, token

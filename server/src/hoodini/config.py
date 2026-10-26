@@ -6,6 +6,9 @@ import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
+
+MqttSource = Literal["explicit", "supervisor", "unavailable"]
 
 
 class ConfigError(ValueError):
@@ -49,6 +52,7 @@ class Settings:
     data_dir: Path = Path("./data")
     log_level: str = "INFO"
     mqtt_overrides: frozenset[str] = frozenset()
+    mqtt_source: MqttSource | None = None
 
     def __repr__(self) -> str:
         return "Settings(<redacted>)"
@@ -128,9 +132,10 @@ def load_settings(config_path: Path | None, *, addon: bool = False) -> Settings:
     log_level = _text(raw.get("log_level", "INFO"), "log_level")
     if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
         raise ConfigError("Invalid log_level configuration.")
+    url = _text(mqtt.get("url"), "mqtt.url", optional=True)
     return Settings(
         mqtt=MqttSettings(
-            _text(mqtt.get("url"), "mqtt.url", optional=True),
+            url,
             _text(mqtt.get("username"), "mqtt.username", optional=True),
             _text(mqtt.get("password"), "mqtt.password", optional=True),
             _bool(mqtt.get("tls", False), "mqtt.tls"),
@@ -145,4 +150,5 @@ def load_settings(config_path: Path | None, *, addon: bool = False) -> Settings:
         data_dir=Path(data_dir),
         log_level=log_level,
         mqtt_overrides=frozenset(mqtt) if addon else frozenset(),
+        mqtt_source="explicit" if url is not None else None,
     )

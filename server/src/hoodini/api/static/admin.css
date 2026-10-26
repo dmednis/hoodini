@@ -22,13 +22,16 @@ article { margin-bottom: 0; border: 1px solid var(--pico-muted-border-color); bo
 .badge.success { color: #15803d; background: rgb(34 197 94 / 9%); }
 .badge.waiting { color: #946000; background: rgb(234 179 8 / 9%); }
 .badge.muted { color: var(--pico-muted-color); }
+.badge.error { color: #bd3542; background: rgb(239 68 68 / 9%); }
 [data-theme="dark"] { --pico-primary: #5ac5cf; }
 [data-theme="dark"] .badge.success { color: #86dca4; }
 [data-theme="dark"] .badge.waiting { color: #eac66e; }
+[data-theme="dark"] .badge.error { color: #f19aa3; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) { --pico-primary: #5ac5cf; }
   :root:not([data-theme="light"]) .badge.success { color: #86dca4; }
   :root:not([data-theme="light"]) .badge.waiting { color: #eac66e; }
+  :root:not([data-theme="light"]) .badge.error { color: #f19aa3; }
 }
 .connection-note { font-size: .9rem; }
 .readings { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
